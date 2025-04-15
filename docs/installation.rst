@@ -34,6 +34,7 @@ Basic Setup
 2. Set up your settings:
 
    .. code-block:: python
+    
        # Configure Redis connection (defaults to localhost:6379/0)
        ADMIN_COLLABORATOR_REDIS_URL = env.str("REDIS_URL")
 
