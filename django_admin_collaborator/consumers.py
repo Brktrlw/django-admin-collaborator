@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta, datetime
+import datetime as dt
 from typing import Dict, Any, Optional, cast
 
 import redis
@@ -126,7 +126,7 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         Returns:
             str: Current UTC time in ISO format with timezone info
         """
-        return timezone.now().astimezone(timezone.utc).isoformat()
+        return timezone.now().astimezone(dt.timezone.utc).isoformat()
 
     @database_sync_to_async
     def get_last_modified(self) -> str:
@@ -253,11 +253,11 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
             # Check if the editor's heartbeat is recent (within last 2 minutes)
             try:
                 # Parse the ISO format timestamp into a datetime object with UTC timezone
-                last_heartbeat: datetime = datetime.fromisoformat(editor_info['last_heartbeat'])
-                current_time: datetime = timezone.now().astimezone(timezone.utc)
+                last_heartbeat: dt.datetime = dt.datetime.fromisoformat(editor_info['last_heartbeat'])
+                current_time: dt.datetime = timezone.now().astimezone(dt.timezone.utc)
 
                 # Using timedelta directly instead of timezone.now() to avoid DB connections
-                if current_time - last_heartbeat > timedelta(minutes=2):
+                if current_time - last_heartbeat > dt.timedelta(minutes=2):
                     # Editor timed out
                     self.redis_client.delete(self.editor_key)
                 else:
@@ -295,7 +295,7 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
             }
             self.redis_client.setex(
                 self.editor_key,
-                timedelta(minutes=2),  # Auto-expire after 2 minutes without heartbeat
+                dt.timedelta(minutes=2),  # Auto-expire after 2 minutes without heartbeat
                 json.dumps(editor_info)
             )
 
@@ -326,7 +326,7 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
                 # Reset the expiration time
                 self.redis_client.setex(
                     self.editor_key,
-                    timedelta(minutes=2),
+                    dt.timedelta(minutes=2),
                     json.dumps(editor_info)
                 )
 
@@ -344,7 +344,7 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         if timestamp:
             try:
                 # Ensure timestamp is in the expected format
-                datetime.fromisoformat(timestamp)
+                dt.datetime.fromisoformat(timestamp)
                 new_timestamp: str = timestamp
             except (ValueError, TypeError):
                 new_timestamp = self.get_timestamp()
