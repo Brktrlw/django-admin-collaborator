@@ -59,6 +59,7 @@ CHANNEL_LAYERS = {
 
 # Settings for django-admin-collaborator
 ADMIN_COLLABORATOR_REDIS_URL = 'redis://localhost:6379/0'
+ADMIN_COLLABORATOR_ADMIN_URL = 'admin'
 
 DEFAULT_ADMIN_COLLABORATOR_OPTIONS = {
     "editor_mode_text": "You are in editor mode.",

@@ -45,13 +45,16 @@ INSTALLED_APPS = [
 ]
 ```
 
-2. Set up Redis in your settings:
+2. Set up your settings:
 
 ```python
 # Configure Redis connection (defaults to localhost:6379/0)
 ADMIN_COLLABORATOR_REDIS_URL = env.str("REDIS_URL")
 
-# Or use the same Redis URL you have for Channels if you're already using it
+# Optional: Configure custom admin URL (useful if you've customized your admin URL)
+ADMIN_COLLABORATOR_ADMIN_URL = env.str("YOUR_SECRET_ADMIN_URL") # default: 'admin'
+
+# Configure Channels to use Redis as the backend
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -59,6 +62,14 @@ CHANNEL_LAYERS = {
             'hosts': [('localhost', 6379)],
         },
     },
+}
+
+# Optional: Customize notification messages. These are the default values that can be overridden
+# {editor_name} - Will be replaced with the name of the current editor
+ADMIN_COLLABORATOR_OPTIONS = {
+    "editor_mode_text": "You are in editor mode.",
+    "viewer_mode_text": "This page is being edited by {editor_name}. You cannot make changes until they leave.",
+    "claiming_editor_text": "The editor has left. The page will refresh shortly to allow editing."
 }
 ```
 
@@ -158,17 +169,6 @@ admin.site.register(
         }
     )
 )
-```
-
-## Customize Info Texts
-You can customize the texts displayed to users in different scenarios. This is done by setting the `ADMIN_COLLABORATOR_OPTIONS` dictionary in your settings.py file.
-To ensure the `{editor_name}` placeholder works correctly, it must be written exactly as `{editor_name}` in your settings. If you modify the placeholder or omit the curly braces, it will not work as expected.
-```python
-ADMIN_COLLABORATOR_OPTIONS = {
-    "editor_mode_text": "You are in editor mode.",
-    "viewer_mode_text": "This page is being edited by {editor_name}. You cannot make changes until they leave.",
-    "claiming_editor_text": "The editor has left. The page will refresh shortly to allow editing."
-}
 ```
 
 ## Deployment on Heroku

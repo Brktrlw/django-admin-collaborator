@@ -31,14 +31,16 @@ Basic Setup
            # ...
        ]
 
-2. Set up Redis in your settings:
+2. Set up your settings:
 
    .. code-block:: python
-
        # Configure Redis connection (defaults to localhost:6379/0)
        ADMIN_COLLABORATOR_REDIS_URL = env.str("REDIS_URL")
 
-       # Or use the same Redis URL you have for Channels if you're already using it
+       # Optional: Configure custom admin URL (useful if you've customized your admin URL)
+       ADMIN_COLLABORATOR_ADMIN_URL = env.str("YOUR_SECRET_ADMIN_URL") # default: 'admin'
+
+       # Configure Channels to use Redis as the backend
        CHANNEL_LAYERS = {
            'default': {
                'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -46,6 +48,14 @@ Basic Setup
                    'hosts': [('localhost', 6379)],
                },
            },
+       }
+
+       # Optional: Customize notification messages. These are the default values that can be overridden
+       # {editor_name} - Will be replaced with the name of the current editor
+       ADMIN_COLLABORATOR_OPTIONS = {
+           "editor_mode_text": "You are in editor mode.",
+           "viewer_mode_text": "This page is being edited by {editor_name}. You cannot make changes until they leave.",
+           "claiming_editor_text": "The editor has left. The page will refresh shortly to allow editing."
        }
 
 3. Set up the ASGI application:

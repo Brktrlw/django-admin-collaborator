@@ -3,7 +3,7 @@ from typing import Any, Dict, Type
 from django.contrib import admin
 from django.db import models
 from django import forms
-from django_admin_collaborator.defaults import DEFAULT_ADMIN_COLLABORATOR_OPTIONS
+from django_admin_collaborator.defaults import DEFAULT_ADMIN_COLLABORATOR_OPTIONS, ADMIN_COLLABORATOR_ADMIN_URL
 from django.conf import settings
 
 class CollaborativeAdminMixin:
@@ -30,6 +30,8 @@ class CollaborativeAdminMixin:
             "claiming_editor_text",
             DEFAULT_ADMIN_COLLABORATOR_OPTIONS["claiming_editor_text"],
         )
+        admin_collaborator_admin_url = getattr(settings, "ADMIN_COLLABORATOR_ADMIN_URL", ADMIN_COLLABORATOR_ADMIN_URL)
+
 
         response = super().change_view(request, object_id, form_url, extra_context)
         if hasattr(response, "render"):
@@ -39,6 +41,7 @@ class CollaborativeAdminMixin:
                 window.ADMIN_COLLABORATOR_EDITOR_MODE_TEXT = '{editor_mode_text}';
                 window.ADMIN_COLLABORATOR_VIEWER_MODE_TEXT = '{viewer_mode_text}';
                 window.ADMIN_COLLABORATOR_CLAIMING_EDITOR_TEXT = '{claiming_editor_text}';
+                window.ADMIN_COLLABORATOR_ADMIN_URL = '{admin_collaborator_admin_url}';
             </script>
             """.encode(
                 "utf-8"

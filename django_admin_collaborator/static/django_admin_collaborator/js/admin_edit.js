@@ -35,9 +35,22 @@ function isAdminChangeForm() {
  */
 function extractPathInfo() {
     const path = window.location.pathname;
-    const adminMatch = path.match(/\/admin\/(\w+)\/(\w+)\/(\w+)\/change\//);
+    const adminUrl = window.ADMIN_COLLABORATOR_ADMIN_URL; // default: 'admin'
+    
+    const adminMatch = path.match(new RegExp(`/${adminUrl}/(\\w+)/(\\w+)/(\\d+)/change/?`));
 
-    if (!adminMatch) return null;
+    if (!adminMatch) {
+        // If we're not on a change page, try to match a detail page without /change/
+        const detailMatch = path.match(new RegExp(`/${adminUrl}/(\\w+)/(\\w+)/(\\d+)/?`));
+        if (detailMatch) {
+            return {
+                appLabel: detailMatch[1],
+                modelName: detailMatch[2],
+                objectId: detailMatch[3]
+            };
+        }
+        return null;
+    }
 
     return {
         appLabel: adminMatch[1],
