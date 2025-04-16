@@ -1,5 +1,5 @@
 # Django Admin Collaborator
-
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/brktrl)
 [![PyPI version](https://badge.fury.io/py/django-admin-collaborator.svg)](https://badge.fury.io/py/django-admin-collaborator)
 [![Python Versions](https://img.shields.io/pypi/pyversions/django-admin-collaborator.svg)](https://pypi.org/project/django-admin-collaborator/)
 [![Django Versions](https://img.shields.io/badge/django-3.2%2B-blue.svg)](https://www.djangoproject.com/)
