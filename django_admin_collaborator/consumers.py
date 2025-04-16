@@ -73,6 +73,14 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         self.user_id: int = self.scope['user'].id
         self.email: str = self.scope['user'].email
 
+        # Get avatar URL if configured
+        avatar_url = None
+        avatar_field = getattr(settings, 'ADMIN_COLLABORATOR_OPTIONS', {}).get('avatar_field')
+        if avatar_field and hasattr(self.scope['user'], avatar_field):
+            avatar = getattr(self.scope['user'], avatar_field)
+            if avatar:
+                avatar_url = avatar.url
+
         # Redis keys for this object
         self.editor_key: str = f"editor:{self.room_group_name}"
         self.last_modified_key: str = f"last_modified:{self.room_group_name}"
@@ -102,7 +110,8 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
                 'user_id': self.user_id,
                 'username': self.email,
                 'timestamp': self.get_timestamp(),
-                'last_modified': last_modified
+                'last_modified': last_modified,
+                'avatar_url': avatar_url
             }
         )
 

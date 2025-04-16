@@ -9,16 +9,18 @@
 Real-time collaborative editing for Django admin interfaces using WebSockets.
 
 ## Overview
+
 ![Demo](https://raw.githubusercontent.com/Brktrlw/django-admin-collaborator/refs/heads/main/screenshots/demo.gif)
 
 ## Features
 
-- **Real-time presence indicators** - See who else is viewing the same object
-- **Exclusive editing mode** - Prevents conflicts by allowing only one user to edit at a time
-- **Automatic lock release** - Abandoned sessions automatically release editing privileges
-- **Seamless integration** with Django admin - Minimal configuration required
-- **User avatars and status indicators** - Visual feedback on who's editing
-- **Automatic page refresh** when content changes - Stay up to date without manual refreshes
+✨ **Real-time presence indicators** - See who else is viewing the same object  
+🔒 **Exclusive editing mode** - Prevents conflicts by allowing only one user to edit at a time  
+⏱️ **Automatic lock release** - Abandoned sessions automatically release editing privileges  
+🔌 **Seamless integration** with Django admin - Minimal configuration required  
+👤 **User avatars and status indicators** - Visual feedback on who's editing with customizable avatars  
+💬 **Rich user tooltips** - Hover over avatars to see user details including email  
+🔄 **Automatic page refresh** when content changes - Stay up to date without manual refreshes  
 
 ## Requirements
 
@@ -34,7 +36,7 @@ pip install django-admin-collaborator
 
 ## Quick Start
 
-1. Add to INSTALLED_APPS:
+### 1. Add to INSTALLED_APPS
 
 ```python
 INSTALLED_APPS = [
@@ -45,16 +47,15 @@ INSTALLED_APPS = [
 ]
 ```
 
-2. Set up your settings:
+### 2. Configure Settings
+
+Add the following settings to your project's `settings.py`:
 
 ```python
-# Configure Redis connection (defaults to localhost:6379/0)
+# Redis connection configuration (defaults to localhost:6379/0)
 ADMIN_COLLABORATOR_REDIS_URL = env.str("REDIS_URL")
 
-# Optional: Configure custom admin URL (useful if you've customized your admin URL)
-ADMIN_COLLABORATOR_ADMIN_URL = env.str("YOUR_SECRET_ADMIN_URL") # default: 'admin'
-
-# Configure Channels to use Redis as the backend
+# Channels configuration with Redis as the backend
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -64,16 +65,22 @@ CHANNEL_LAYERS = {
     },
 }
 
-# Optional: Customize notification messages. These are the default values that can be overridden
+# Optional: Configure custom admin URL (if you've customized your admin URL)
+ADMIN_COLLABORATOR_ADMIN_URL = env.str("YOUR_SECRET_ADMIN_URL")  # default: 'admin'
+
+# Optional: Customize notification messages and avatar settings
 # {editor_name} - Will be replaced with the name of the current editor
 ADMIN_COLLABORATOR_OPTIONS = {
     "editor_mode_text": "You are in editor mode.",
     "viewer_mode_text": "This page is being edited by {editor_name}. You cannot make changes until they leave.",
-    "claiming_editor_text": "The editor has left. The page will refresh shortly to allow editing."
+    "claiming_editor_text": "The editor has left. The page will refresh shortly to allow editing.",
+    "avatar_field": "avatar"  # Name of the field containing the user's avatar image
 }
 ```
 
-3. Set up the ASGI application:
+### 3. Set up the ASGI application
+
+Create or modify your `asgi.py` file:
 
 ```python
 # asgi.py
@@ -100,7 +107,7 @@ application = ProtocolTypeRouter({
 })
 ```
 
-4. Enable collaborative editing for specific admin classes:
+### 4. Enable collaborative editing for specific admin classes
 
 ```python
 from django.contrib import admin
@@ -113,24 +120,47 @@ class MyModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
     # ... your other admin configurations
 ```
 
-5. Run your project using an ASGI server like Daphne or Uvicorn:
+### 5. Run your project using an ASGI server
 
 ```bash
+# Using Daphne
 daphne yourproject.asgi:application
-# OR
+
+# OR using Uvicorn
 uvicorn yourproject.asgi:application --host 0.0.0.0 --reload --reload-include '*.html'
 ```
 
-## Documentation
-
-For complete documentation, please visit:
-- [Read the Docs](https://django-admin-collaborator.readthedocs.io/)
-
 ## Advanced Usage
 
-### Applying to Multiple Admin Classes
+### Avatar Configuration
 
-You can use the utility functions to apply collaborative editing to existing admin classes:
+You can customize the avatar display by setting the `avatar_field` in your settings:
+
+```python
+ADMIN_COLLABORATOR_OPTIONS = {
+    # ... other options ...
+    "avatar_field": "profile_picture"  # Use a different field name for avatars
+}
+```
+
+The avatar field should be an `ImageField` on your User model. If no avatar is available, the system will display the user's initials instead.
+
+### Multiple Implementation Methods
+
+#### Method 1: Using the Mixin (Recommended)
+
+```python
+from django.contrib import admin
+from django_admin_collaborator.utils import CollaborativeAdminMixin
+from myapp.models import MyModel
+
+@admin.register(MyModel)
+class MyModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
+    list_display = ('name', 'description')
+    # ... your other admin configurations
+```
+
+#### Method 2: Using the Utility Function
 
 ```python
 from django.contrib import admin
@@ -149,9 +179,7 @@ CollaborativeMyModelAdmin = make_collaborative(MyModelAdmin)
 admin.site.register(MyModel, CollaborativeMyModelAdmin)
 ```
 
-### Creating Admin Classes Dynamically
-
-You can use the factory function to create admin classes dynamically:
+#### Method 3: Using the Factory Function
 
 ```python
 from django.contrib import admin
@@ -171,17 +199,24 @@ admin.site.register(
 )
 ```
 
-## Deployment on Heroku
+## Deployment
 
-If you're deploying this application on Heroku, ensure that you configure the database connection settings appropriately to optimize performance. Specifically, Heroku may require you to set the `CONN_MAX_AGE` to 0 to avoid persistent database connections.
+### Heroku Deployment
 
-Add the following to your settings.py file:
+If you're deploying this application on Heroku, ensure that you configure the database connection settings appropriately to optimize performance:
+
 ```python
+# settings.py
 if not DEBUG:
     import django_heroku
     django_heroku.settings(locals())
     DATABASES['default']['CONN_MAX_AGE'] = 0
 ```
+
+## Documentation
+
+For complete documentation, please visit:
+- [Read the Docs](https://django-admin-collaborator.readthedocs.io/)
 
 ## Contributing
 

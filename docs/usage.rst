@@ -17,6 +17,25 @@ To enable collaborative editing for a specific admin class, inherit from the ``C
         list_display = ('name', 'description')
         # ... your other admin configurations
 
+Avatar Configuration
+------------------
+
+The collaborative editor supports user avatars and rich tooltips. To enable this feature, you need to:
+
+1. Add an ImageField to your User model (or use an existing one)
+2. Configure the avatar field in your settings:
+
+.. code-block:: python
+
+    ADMIN_COLLABORATOR_OPTIONS = {
+        # ... other options ...
+        "avatar_field": "profile_picture"  # Name of the field containing the user's avatar image
+    }
+
+If no avatar is available, the system will display the user's initials instead. When hovering over an avatar, you'll see a tooltip showing:
+- User's name
+- User's email (if available)
+
 Advanced Usage
 ------------
 

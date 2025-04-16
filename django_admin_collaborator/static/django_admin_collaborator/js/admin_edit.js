@@ -156,12 +156,19 @@ class UIManager {
      * @param {string} username - The user's username
      * @param {string} email - The user's email
      * @param {boolean} isEditor - Whether this user is the current editor
+     * @param {string|null} avatarUrl - URL of the user's avatar image, if available
      */
-    addUserAvatar(userId, username, email, isEditor) {
+    addUserAvatar(userId, username, email, isEditor, avatarUrl) {
         // Check if avatar already exists
         if (document.getElementById(`user-avatar-${userId}`)) {
             return;
         }
+
+        // Create avatar container
+        const avatarContainer = document.createElement('div');
+        avatarContainer.id = `user-avatar-container-${userId}`;
+        avatarContainer.style.position = 'relative';
+        avatarContainer.style.display = 'inline-block';
 
         // Create avatar element
         const avatar = document.createElement('div');
@@ -182,42 +189,95 @@ class UIManager {
         avatar.style.color = '#fff';
         avatar.style.textTransform = 'uppercase';
         avatar.style.position = 'relative';
+        avatar.style.overflow = 'hidden';
 
         // Set background color based on editor status
         this.updateAvatarStyle(avatar, isEditor);
 
-        // Add first letter of username
-        avatar.textContent = username.charAt(0);
+        if (avatarUrl) {
+            // Create and add image element
+            const img = document.createElement('img');
+            img.src = avatarUrl;
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'cover';
+            avatar.appendChild(img);
+        } else {
+            // Add first letter of username as fallback
+            avatar.textContent = username.charAt(0);
+        }
 
         // Create and append tooltip
         const tooltip = document.createElement('div');
         tooltip.className = 'avatar-tooltip';
-        tooltip.textContent = username;
+        
+        // Create tooltip content with username and email
+        const tooltipContent = document.createElement('div');
+        tooltipContent.style.display = 'flex';
+        tooltipContent.style.flexDirection = 'column';
+        tooltipContent.style.gap = '4px';
+        
+        // Add username
+        const usernameElement = document.createElement('div');
+        usernameElement.textContent = username;
+        usernameElement.style.fontWeight = 'bold';
+        usernameElement.style.fontSize = '14px';
+        
+        // Add email if available
+        if (email) {
+            const emailElement = document.createElement('div');
+            emailElement.textContent = email;
+            emailElement.style.fontSize = '12px';
+            emailElement.style.color = '#e0e0e0';
+            tooltipContent.appendChild(emailElement);
+        }
+        
+        tooltipContent.insertBefore(usernameElement, tooltipContent.firstChild);
+        tooltip.appendChild(tooltipContent);
+        
+        // Tooltip styling
         tooltip.style.position = 'absolute';
-        tooltip.style.bottom = '-30px';
-        tooltip.style.right = '0';
+        tooltip.style.top = '100%';
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translateX(-50%)';
+        tooltip.style.marginTop = '8px';
         tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
         tooltip.style.color = '#fff';
-        tooltip.style.padding = '5px 10px';
-        tooltip.style.borderRadius = '3px';
+        tooltip.style.padding = '8px 12px';
+        tooltip.style.borderRadius = '4px';
         tooltip.style.fontSize = '12px';
         tooltip.style.whiteSpace = 'nowrap';
         tooltip.style.display = 'none';
         tooltip.style.zIndex = '1002';
+        tooltip.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
 
-        avatar.appendChild(tooltip);
+        // Add a small arrow to the tooltip
+        const arrow = document.createElement('div');
+        arrow.style.position = 'absolute';
+        arrow.style.top = '-6px';
+        arrow.style.left = '50%';
+        arrow.style.transform = 'translateX(-50%)';
+        arrow.style.width = '0';
+        arrow.style.height = '0';
+        arrow.style.borderLeft = '6px solid transparent';
+        arrow.style.borderRight = '6px solid transparent';
+        arrow.style.borderBottom = '6px solid rgba(0, 0, 0, 0.8)';
+        tooltip.appendChild(arrow);
+
+        avatarContainer.appendChild(avatar);
+        avatarContainer.appendChild(tooltip);
 
         // Show/hide tooltip on hover
-        avatar.addEventListener('mouseenter', () => {
+        avatarContainer.addEventListener('mouseenter', () => {
             tooltip.style.display = 'block';
         });
 
-        avatar.addEventListener('mouseleave', () => {
+        avatarContainer.addEventListener('mouseleave', () => {
             tooltip.style.display = 'none';
         });
 
-        // Add avatar to container
-        this.userAvatarsContainer.appendChild(avatar);
+        // Add avatar container to the main container
+        this.userAvatarsContainer.appendChild(avatarContainer);
     }
 
     /**
@@ -616,7 +676,8 @@ class CollaborativeEditor {
                 data.user_id,
                 data.username,
                 data.email,
-                data.user_id === this.currentEditor
+                data.user_id === this.currentEditor,
+                data.avatar_url
             );
         }
     }
