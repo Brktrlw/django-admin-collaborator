@@ -242,6 +242,8 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
                 await self.handle_content_updated(data.get('timestamp'))
             elif message_type == 'release_lock':
                 await self.handle_release_lock()
+            elif message_type == 'request_attention':
+                await self.handle_request_attention()
         except Exception as e:
             logger.exception(f"Error processing message: {e}")
 
@@ -405,6 +407,60 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
                     }
                 )
 
+    async def handle_request_attention(self) -> None:
+        """
+        Process a request for the editor's attention from a viewer.
+
+        Checks if the user can send a notification based on rate limiting,
+        then forwards the request to the current editor.
+        """
+        # Get current editor status from Redis
+        editor_data: Optional[bytes] = self.redis_client.get(self.editor_key)
+
+        if not editor_data:
+            # No editor to notify
+            return
+
+        editor_info: Dict[str, Any] = json.loads(editor_data)
+        editor_id = editor_info.get('editor_id')
+
+        if editor_id == self.user_id:
+            # User is the editor, no need to notify self
+            return
+
+        # Rate limiting key specific to this user for this object
+        rate_limit_key = f"attention_request:{self.room_group_name}:{self.user_id}"
+
+        # Get the notification interval from settings (default 15 seconds)
+        notification_interval = getattr(
+            settings,
+            'ADMIN_COLLABORATOR_OPTIONS',
+            {}
+        ).get('notification_request_interval', 15)
+
+        # Check if user has sent a request recently
+        if self.redis_client.exists(rate_limit_key):
+            # Too soon to send another request
+            return
+
+        # Set rate limiting key with expiration
+        self.redis_client.setex(
+            rate_limit_key,
+            notification_interval,  # Expires after the configured interval
+            1
+        )
+
+        # Notify the editor
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'attention_requested',
+                'user_id': self.user_id,
+                'username': self.email,
+                'timestamp': self.get_timestamp()
+            }
+        )
+
     # Event handlers for channel layer messages
 
     async def user_joined(self, event: Dict[str, Any]) -> None:
@@ -446,6 +502,15 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
     async def lock_released(self, event: Dict[str, Any]) -> None:
         """
         Handle lock_released events from the channel layer.
+
+        Args:
+            event (Dict[str, Any]): Event data including user_id, username, and timestamp
+        """
+        await self.send(text_data=json.dumps(event))
+
+    async def attention_requested(self, event: Dict[str, Any]) -> None:
+        """
+        Handle attention_requested events from the channel layer.
 
         Args:
             event (Dict[str, Any]): Event data including user_id, username, and timestamp

@@ -4,82 +4,47 @@ Usage
 Basic Usage
 ----------
 
-To enable collaborative editing for a specific admin class, inherit from the ``CollaborativeAdminMixin`` and register your model:
+To enable collaborative editing for a specific admin class, inherit from the ``CollaborativeAdminMixin``:
 
 .. code-block:: python
 
     from django.contrib import admin
     from django_admin_collaborator.utils import CollaborativeAdminMixin
-    from myapp.models import MyModel
 
-    @admin.register(MyModel)
-    class MyModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
-        list_display = ('name', 'description')
-        # ... your other admin configurations
+    class YourModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
+        ...
 
-Avatar Configuration
-------------------
+Implementation Methods
+--------------------
 
-The collaborative editor supports user avatars and rich tooltips. To enable this feature, you need to:
+You can implement collaborative editing in several ways:
 
-1. Add an ImageField to your User model (or use an existing one)
-2. Configure the avatar field in your settings:
+1. **Using the Mixin**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. code-block:: python
-
-    ADMIN_COLLABORATOR_OPTIONS = {
-        # ... other options ...
-        "avatar_field": "profile_picture"  # Name of the field containing the user's avatar image
-    }
-
-If no avatar is available, the system will display the user's initials instead. When hovering over an avatar, you'll see a tooltip showing:
-- User's name
-- User's email (if available)
-
-Advanced Usage
-------------
-
-Applying to Multiple Admin Classes
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-You can use the utility functions to apply collaborative editing to existing admin classes:
+The simplest and most straightforward approach:
 
 .. code-block:: python
 
     from django.contrib import admin
-    from django_admin_collaborator.utils import make_collaborative
-    from myapp.models import MyModel
+    from django_admin_collaborator.utils import CollaborativeAdminMixin
 
-    # Create your admin class
-    class MyModelAdmin(admin.ModelAdmin):
-        list_display = ('name', 'description')
-        # ... your other admin configurations
+    class YourModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
+        ...
 
-    # Apply collaborative editing
-    CollaborativeMyModelAdmin = make_collaborative(MyModelAdmin)
+Best Practices
+-------------
 
-    # Register with admin
-    admin.site.register(MyModel, CollaborativeMyModelAdmin)
+1. **Choose the Right Implementation Method**
+   - Use the Mixin approach for new admin classes
+   - Ensure proper inheritance order (CollaborativeAdminMixin before admin.ModelAdmin)
 
-Creating Admin Classes Dynamically
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2. **Configure Notifications**
+   - Set appropriate notification intervals
+   - Customize messages to match your application's tone
+   - Consider user experience when setting notification frequencies
 
-You can use the factory function to create admin classes dynamically:
-
-.. code-block:: python
-
-    from django.contrib import admin
-    from django_admin_collaborator.utils import collaborative_admin_factory
-    from myapp.models import MyModel
-
-    # Create and register the admin class in one go
-    admin.site.register(
-        MyModel,
-        collaborative_admin_factory(
-            MyModel,
-            admin_options={
-                'list_display': ('name', 'description'),
-                'search_fields': ('name',),
-            }
-        )
-    )
+3. **URL Configuration**
+   - Keep URLs consistent with your application's routing structure
+   - Consider security implications when customizing URLs
+   - Test WebSocket connections after URL changes

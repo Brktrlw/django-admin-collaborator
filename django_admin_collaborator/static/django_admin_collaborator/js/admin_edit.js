@@ -36,7 +36,7 @@ function isAdminChangeForm() {
 function extractPathInfo() {
     const path = window.location.pathname;
     const adminUrl = window.ADMIN_COLLABORATOR_ADMIN_URL; // default: 'admin'
-    
+
     const adminMatch = path.match(new RegExp(`/${adminUrl}/(\\w+)/(\\w+)/(\\d+)/change/?`));
 
     if (!adminMatch) {
@@ -67,8 +67,10 @@ class UIManager {
     constructor() {
         this.warningBanner = this.createWarningBanner();
         this.userAvatarsContainer = this.createUserAvatarsContainer();
+        this.notificationContainer = this.createNotificationContainer();
         document.body.appendChild(this.warningBanner);
         document.body.appendChild(this.userAvatarsContainer);
+        document.body.appendChild(this.notificationContainer);
     }
 
     /**
@@ -109,6 +111,29 @@ class UIManager {
         container.style.display = 'flex';
         container.style.flexDirection = 'row-reverse'; // Right to left
         container.style.gap = '5px';
+        return container;
+    }
+
+    /**
+     * Create the notification container for editor attention requests
+     * @returns {HTMLElement} The created notification container
+     */
+    createNotificationContainer() {
+        const container = document.createElement('div');
+        container.id = 'attention-notification-container';
+        container.style.position = 'fixed';
+        container.style.bottom = '20px';
+        container.style.left = '20px';
+        container.style.zIndex = '1002';
+        container.style.borderRadius = '10px';
+        container.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+        container.style.color = '#333';
+        container.style.padding = '16px';
+        container.style.fontSize = '14px';
+        container.style.fontFamily = 'system-ui, sans-serif';
+        container.style.maxWidth = '320px';
+        container.style.display = 'none';
+        container.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
         return container;
     }
 
@@ -210,19 +235,19 @@ class UIManager {
         // Create and append tooltip
         const tooltip = document.createElement('div');
         tooltip.className = 'avatar-tooltip';
-        
+
         // Create tooltip content with username and email
         const tooltipContent = document.createElement('div');
         tooltipContent.style.display = 'flex';
         tooltipContent.style.flexDirection = 'column';
         tooltipContent.style.gap = '4px';
-        
+
         // Add username
         const usernameElement = document.createElement('div');
         usernameElement.textContent = username;
         usernameElement.style.fontWeight = 'bold';
         usernameElement.style.fontSize = '14px';
-        
+
         // Add email if available
         if (email) {
             const emailElement = document.createElement('div');
@@ -231,10 +256,10 @@ class UIManager {
             emailElement.style.color = '#e0e0e0';
             tooltipContent.appendChild(emailElement);
         }
-        
+
         tooltipContent.insertBefore(usernameElement, tooltipContent.firstChild);
         tooltip.appendChild(tooltipContent);
-        
+
         // Tooltip styling
         tooltip.style.position = 'absolute';
         tooltip.style.top = '100%';
@@ -383,6 +408,72 @@ class UIManager {
             button.addEventListener('click', saveCallback);
         });
     }
+
+    /**
+     * Show attention request notification
+     * @param {string} username - Username of the requester
+     */
+    showAttentionNotification(username) {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = 'attention-notification';
+
+        // Style the notification
+        notification.style.backgroundColor = '#f8f9fa';
+        notification.style.border = '1px solid #dee2e6';
+        notification.style.borderLeft = '4px solid #007bff';
+        notification.style.borderRadius = '4px';
+        notification.style.boxShadow = '0 2px 5px rgba(0,0,0,0.15)';
+        notification.style.padding = '12px 15px';
+        notification.style.marginBottom = '10px';
+        notification.style.position = 'relative';
+        notification.style.animation = 'fadeIn 0.3s ease-in-out';
+
+        // Create message with the configured text
+        let message = window.ADMIN_COLLABORATOR_NOTIFICATION_MESSAGE || 'User {username} is requesting the editors attention.';
+        message = message.replace('{username}', username);
+
+        notification.textContent = message;
+
+        // Add close button
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '×';
+        closeButton.style.position = 'absolute';
+        closeButton.style.top = '5px';
+        closeButton.style.right = '5px';
+        closeButton.style.border = 'none';
+        closeButton.style.background = 'none';
+        closeButton.style.fontSize = '16px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.style.color = '#6c757d';
+
+        closeButton.addEventListener('click', () => {
+            notification.remove();
+
+            // Hide container if empty
+            if (!this.notificationContainer.children.length) {
+                this.notificationContainer.style.display = 'none';
+            }
+        });
+
+        notification.appendChild(closeButton);
+
+        // Add to container
+        this.notificationContainer.style.display = 'block';
+        this.notificationContainer.appendChild(notification);
+
+        // Auto-remove after 10 seconds
+        setTimeout(() => {
+            if (notification.parentNode === this.notificationContainer) {
+                notification.remove();
+
+                // Hide container if empty
+                if (!this.notificationContainer.children.length) {
+                    this.notificationContainer.style.display = 'none';
+                }
+            }
+        }, 10000);
+    }
 }
 
 /**
@@ -414,13 +505,13 @@ class WebSocketManager {
             this.socket.close();
         }
 
-        const base_part = location.hostname + (location.port ? ':' + location.port : '');
         const { appLabel, modelName, objectId } = this.pathInfo;
-        let wssSource = `/admin/collaboration/${appLabel}/${modelName}/${objectId}/`;
+        const base_part = window.location.host;
+        let wssSource = `/${window.ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL}/${appLabel}/${modelName}/${objectId}/`;
 
-        if (location.protocol === 'https:') {
+        if (window.location.protocol === "https:") {
             wssSource = "wss://" + base_part + wssSource;
-        } else if (location.protocol === 'http:') {
+        } else {
             wssSource = "ws://" + base_part + wssSource;
         }
 
@@ -489,6 +580,11 @@ class WebSocketManager {
             case 'lock_released':
                 if (this.handlers.onLockReleased) {
                     this.handlers.onLockReleased(data);
+                }
+                break;
+            case 'attention_requested':
+                if (this.handlers.onAttentionRequested) {
+                    this.handlers.onAttentionRequested(data);
                 }
                 break;
         }
@@ -572,6 +668,16 @@ class WebSocketManager {
     }
 
     /**
+     * Request the editor's attention
+     */
+    requestAttention() {
+        this.sendMessage({
+            'type': 'request_attention',
+            'timestamp': getUTCTimestamp()
+        });
+    }
+
+    /**
      * Cleanup resources before page unload
      */
     cleanup() {
@@ -612,6 +718,7 @@ class CollaborativeEditor {
         this.activeUsers = {}; // Stores {id: {username, email}}
         this.refreshTimer = null;
         this.heartbeatInterval = null;
+        this.lastAttentionRequestTime = 0; // Track when last attention request was sent
 
         // Create WebSocket manager with handlers
         this.wsManager = new WebSocketManager(pathInfo, {
@@ -621,7 +728,8 @@ class CollaborativeEditor {
             onContentUpdated: this.handleContentUpdated.bind(this),
             onLockReleased: this.handleLockReleased.bind(this),
             onReconnectAttempt: this.handleReconnectAttempt.bind(this),
-            onMaxReconnectAttemptsReached: this.handleMaxReconnectAttemptsReached.bind(this)
+            onMaxReconnectAttemptsReached: this.handleMaxReconnectAttemptsReached.bind(this),
+            onAttentionRequested: this.handleAttentionRequested.bind(this)
         });
     }
 
@@ -726,6 +834,8 @@ class CollaborativeEditor {
             viewerModeText = viewerModeText.replace('{editor_name}', data.editor_name);
             this.uiManager.showWarningMessage(viewerModeText);
             this.uiManager.disableForm();
+            // Add attention request button for viewers
+            this.addAttentionRequestButton();
         } else {
             // No editor, try to claim editor status
             this.wsManager.claimEditor();
@@ -755,6 +865,17 @@ class CollaborativeEditor {
         if (this.currentEditor !== this.myUserId) {
             this.uiManager.showWarningMessage('The editor has finished editing. The page will refresh to allow you to edit.');
             this.scheduleRefresh();
+        }
+    }
+
+    /**
+     * Handle attention requested message
+     * @param {Object} data - Attention requested message data
+     */
+    handleAttentionRequested(data) {
+        // Only show notification if we're the current editor
+        if (this.currentEditor === this.myUserId) {
+            this.uiManager.showAttentionNotification(data.username);
         }
     }
 
@@ -798,6 +919,96 @@ class CollaborativeEditor {
 
         // Clean up WebSocket
         this.wsManager.cleanup();
+    }
+
+    /**
+     * Add a button for viewers to request the editor's attention
+     */
+    addAttentionRequestButton() {
+        // Check if button already exists
+        if (document.getElementById('request-attention-button')) {
+            return;
+        }
+
+        // Create button container - add to warning banner
+        const warningBanner = document.getElementById('edit-lock-warning');
+        if (!warningBanner) return;
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.marginTop = '8px';
+
+        const requestButton = document.createElement('button');
+        requestButton.id = 'request-attention-button';
+        requestButton.textContent = window.ADMIN_COLLABORATOR_NOTIFICATION_BUTTON_TEXT;
+
+        requestButton.style.padding = '10px 20px';
+        requestButton.style.background = 'linear-gradient(135deg, #6c63ff, #3f3d56)';
+        requestButton.style.color = '#fff';
+        requestButton.style.border = 'none';
+        requestButton.style.borderRadius = '8px';
+        requestButton.style.cursor = 'pointer';
+        requestButton.style.fontSize = '15px';
+        requestButton.style.fontWeight = '600';
+        requestButton.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.15)';
+        requestButton.style.transition = 'all 0.3s ease';
+
+        requestButton.addEventListener('mouseenter', () => {
+            requestButton.style.transform = 'translateY(-2px)';
+            requestButton.style.boxShadow = '0 6px 14px rgba(0, 0, 0, 0.2)';
+        });
+
+        requestButton.addEventListener('mouseleave', () => {
+            requestButton.style.transform = 'translateY(0)';
+            requestButton.style.boxShadow = '0 4px 10px rgba(0, 0, 0, 0.15)';
+        });
+
+        // Set up the click handler with rate limiting
+        requestButton.addEventListener('click', () => {
+            const now = Date.now();
+            const interval = (window.ADMIN_COLLABORATOR_NOTIFICATION_INTERVAL || 15) * 1000; // Convert to milliseconds
+
+            if (now - this.lastAttentionRequestTime < interval) {
+                // Too soon to request again
+                const remainingSeconds = Math.ceil((interval - (now - this.lastAttentionRequestTime)) / 1000);
+
+                // Show temporary message on the button
+                const originalText = requestButton.textContent;
+                requestButton.textContent = `Wait ${remainingSeconds}s`;
+                requestButton.disabled = true;
+                requestButton.style.opacity = '0.7';
+
+                // Reset the button after a short delay
+                setTimeout(() => {
+                    requestButton.textContent = originalText;
+                    requestButton.disabled = false;
+                    requestButton.style.opacity = '1';
+                }, 2000);
+
+                return;
+            }
+
+            // Update last request time
+            this.lastAttentionRequestTime = now;
+
+            // Send the attention request
+            this.wsManager.requestAttention();
+
+            // Provide feedback
+            const originalText = requestButton.textContent;
+            requestButton.textContent = window.ADMIN_COLLABORATOR_NOTIFICATION_REQUEST_SENT_TEXT;
+            requestButton.disabled = true;
+            requestButton.style.opacity = '0.7';
+
+            // Reset the button after interval expires
+            setTimeout(() => {
+                requestButton.textContent = originalText;
+                requestButton.disabled = false;
+                requestButton.style.opacity = '1';
+            }, interval);
+        });
+
+        buttonContainer.appendChild(requestButton);
+        warningBanner.appendChild(buttonContainer);
     }
 }
 

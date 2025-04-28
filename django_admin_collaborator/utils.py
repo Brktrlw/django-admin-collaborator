@@ -1,9 +1,10 @@
-from typing import Any, Dict, Type
 
-from django.contrib import admin
-from django.db import models
 from django import forms
-from django_admin_collaborator.defaults import DEFAULT_ADMIN_COLLABORATOR_OPTIONS, ADMIN_COLLABORATOR_ADMIN_URL
+from django_admin_collaborator.defaults import (
+    DEFAULT_ADMIN_COLLABORATOR_OPTIONS,
+    ADMIN_COLLABORATOR_ADMIN_URL,
+    get_admin_collaborator_websocket_connection_prefix_url
+)
 from django.conf import settings
 
 class CollaborativeAdminMixin:
@@ -34,67 +35,38 @@ class CollaborativeAdminMixin:
         avatar_field = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
             "avatar_field", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["avatar_field"]
         )
+        notification_request_interval = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "notification_request_interval", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["notification_request_interval"]
+        )
+        notification_message = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "notification_message", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["notification_message"]
+        )
 
+        admin_collaborator_websocket_connection_prefix_url = get_admin_collaborator_websocket_connection_prefix_url()
+
+        notification_button_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "notification_button_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["notification_button_text"]
+        )
+        notification_request_sent_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "notification_request_sent_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["notification_request_sent_text"]
+        )
         response = super().change_view(request, object_id, form_url, extra_context)
         if hasattr(response, "render"):
             response.render()
-            response.content += f""" 
+            response.content += f"""
             <script>
                 window.ADMIN_COLLABORATOR_EDITOR_MODE_TEXT = '{editor_mode_text}';
                 window.ADMIN_COLLABORATOR_VIEWER_MODE_TEXT = '{viewer_mode_text}';
                 window.ADMIN_COLLABORATOR_CLAIMING_EDITOR_TEXT = '{claiming_editor_text}';
                 window.ADMIN_COLLABORATOR_ADMIN_URL = '{admin_collaborator_admin_url}';
                 window.ADMIN_COLLABORATOR_AVATAR_FIELD = '{avatar_field}';
+                window.ADMIN_COLLABORATOR_NOTIFICATION_INTERVAL = {notification_request_interval};
+                window.ADMIN_COLLABORATOR_NOTIFICATION_MESSAGE = '{notification_message}';
+                window.ADMIN_COLLABORATOR_NOTIFICATION_BUTTON_TEXT = '{notification_button_text}';
+                window.ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = '{admin_collaborator_websocket_connection_prefix_url}';
+                window.ADMIN_COLLABORATOR_NOTIFICATION_REQUEST_SENT_TEXT = '{notification_request_sent_text}';
             </script>
             """.encode(
                 "utf-8"
             )
         return response
-
-
-def make_collaborative(admin_class: Type[admin.ModelAdmin]) -> Type[admin.ModelAdmin]:
-    """
-    Function to dynamically add collaborative editing to an existing ModelAdmin class.
-
-    Args:
-        admin_class: The ModelAdmin class to enhance
-
-    Returns:
-        A new ModelAdmin class with collaborative editing capabilities
-    """
-
-    class CollaborativeAdmin(CollaborativeAdminMixin, admin_class):
-        pass
-
-    return CollaborativeAdmin
-
-
-def collaborative_admin_factory(
-        model_class: Type[models.Model],
-        admin_options: Dict[str, Any] = None,
-        base_admin_class: Type[admin.ModelAdmin] = admin.ModelAdmin,
-) -> Type[admin.ModelAdmin]:
-    """
-    Factory function to create a collaborative ModelAdmin for a model.
-
-    Args:
-        model_class: The model class for which to create the admin
-        admin_options: Optional dictionary of admin options
-        base_admin_class: Base admin class to extend from (default: admin.ModelAdmin)
-
-    Returns:
-        A ModelAdmin class with collaborative editing capabilities
-    """
-    if admin_options is None:
-        admin_options = {}
-
-    # Create a new class dynamically
-    attrs = {**admin_options}
-
-    # Create the base admin class
-    AdminClass = type(
-        f"Collaborative{model_class.__name__}Admin", (base_admin_class,), attrs
-    )
-
-    # Add collaborative functionality
-    return make_collaborative(AdminClass)
