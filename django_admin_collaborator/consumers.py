@@ -516,3 +516,261 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
             event (Dict[str, Any]): Event data including user_id, username, and timestamp
         """
         await self.send(text_data=json.dumps(event))
+
+
+class ChatConsumer(AsyncWebsocketConsumer):
+    """
+    WebSocket consumer for real-time chat between users on the same page.
+
+    This consumer manages presence tracking and message routing between users
+    viewing the same page in the Django admin interface.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Initialize Redis client lazily
+        self._redis_client = None
+
+    @property
+    def redis_client(self):
+        """
+        Lazily initialize the Redis client.
+
+        Uses the REDIS_URL from settings, or a sensible default.
+        """
+        if not self._redis_client:
+            redis_url = getattr(settings, 'ADMIN_COLLABORATOR_REDIS_URL',
+                              getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0'))
+            self._redis_client = redis.from_url(redis_url)
+        return self._redis_client
+
+    async def connect(self) -> None:
+        """
+        Handle WebSocket connection establishment.
+
+        - Extracts current page path from URL
+        - Authenticates the user
+        - Sets up channel group for users on this page
+        - Adds user to the presence list
+        - Notifies other users about this user's presence
+        """
+        # Get parameters from the URL
+        self.page_path = self.scope['url_route']['kwargs']['page_path']
+
+        # Perform authentication check
+        is_authorized: bool = await self.check_user_authorization()
+        if not is_authorized:
+            await self.close()
+            return
+
+        # Create a unique channel group name for this page
+        self.room_group_name: str = f"chat_{self.page_path}"
+        self.user_id: int = self.scope['user'].id
+        self.username: str = self.scope['user'].username
+        self.email: str = self.scope['user'].email
+
+        # Get avatar URL if configured
+        self.avatar_url = None
+        avatar_field = getattr(settings, 'ADMIN_COLLABORATOR_OPTIONS', {}).get('avatar_field')
+        if avatar_field and hasattr(self.scope['user'], avatar_field):
+            avatar = getattr(self.scope['user'], avatar_field)
+            if avatar:
+                self.avatar_url = avatar.url
+
+        # Join room group
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+
+        # Accept the WebSocket connection
+        await self.accept()
+
+        # Save active users in Redis with expiration
+        active_users_key = f"chat_active_users:{self.room_group_name}"
+        user_data = json.dumps({
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'avatar_url': self.avatar_url,
+            'last_seen': self.get_timestamp()
+        })
+        self.redis_client.hset(active_users_key, self.user_id, user_data)
+
+        # Get all active users
+        active_users = self.redis_client.hgetall(active_users_key)
+        users_list = []
+        for user_id, user_data in active_users.items():
+            if user_id != str(self.user_id).encode():  # Exclude self
+                users_list.append(json.loads(user_data))
+
+        # Send active users list to the new user
+        await self.send(text_data=json.dumps({
+            'type': 'active_users',
+            'users': users_list
+        }))
+
+        # Notify others about this user's presence
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'user_joined',
+                'user_id': self.user_id,
+                'username': self.username,
+                'email': self.email,
+                'avatar_url': self.avatar_url,
+                'timestamp': self.get_timestamp()
+            }
+        )
+
+    @database_sync_to_async
+    def check_user_authorization(self) -> bool:
+        """
+        Validate user is authenticated and has staff permissions.
+
+        Returns:
+            bool: True if user is authenticated and has staff permissions, False otherwise
+        """
+        user = cast(User, self.scope['user'])
+        return user.is_authenticated and user.is_staff
+
+    def get_timestamp(self) -> str:
+        """
+        Generate a UTC ISO format timestamp.
+
+        Returns:
+            str: Current UTC time in ISO format with timezone info
+        """
+        return timezone.now().astimezone(dt.timezone.utc).isoformat()
+
+    async def disconnect(self, close_code: int) -> None:
+        """
+        Handle WebSocket disconnection.
+
+        - Removes user from active users list
+        - Notifies other users about this user leaving
+        - Leaves the channel group
+        """
+        try:
+            if hasattr(self, 'room_group_name'):
+                # Remove user from active users in Redis
+                active_users_key = f"chat_active_users:{self.room_group_name}"
+                self.redis_client.hdel(active_users_key, self.user_id)
+
+                # Notify the group that the user has left
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'user_left',
+                        'user_id': self.user_id,
+                        'username': self.username,
+                        'email': self.email
+                    }
+                )
+
+                # Leave room group
+                await self.channel_layer.group_discard(
+                    self.room_group_name,
+                    self.channel_name
+                )
+        except Exception as e:
+            logger.exception(f"Error during disconnect: {e}")
+
+    async def receive(self, text_data: str) -> None:
+        """
+        Process incoming WebSocket messages.
+
+        Routes each message to the appropriate handler based on its type.
+
+        Args:
+            text_data (str): JSON string containing the message data
+        """
+        try:
+            data: Dict[str, Any] = json.loads(text_data)
+            message_type: str = data.get('type')
+
+            if message_type == 'chat_message':
+                await self.handle_chat_message(
+                    data.get('recipient_id'),
+                    data.get('message')
+                )
+            elif message_type == 'heartbeat':
+                await self.handle_heartbeat()
+        except Exception as e:
+            logger.exception(f"Error processing message: {e}")
+
+    async def handle_chat_message(self, recipient_id: int, message: str) -> None:
+        """
+        Process and route chat messages between users.
+
+        Args:
+            recipient_id (int): ID of the user receiving the message
+            message (str): Content of the chat message
+        """
+        if not message or not recipient_id:
+            return
+
+        timestamp = self.get_timestamp()
+
+        # Send to recipient and sender (so both see the message)
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'chat_message',
+                'sender_id': self.user_id,
+                'sender_name': self.username,
+                'sender_email': self.email,
+                'sender_avatar': self.avatar_url,
+                'recipient_id': recipient_id,
+                'message': message,
+                'timestamp': timestamp
+            }
+        )
+
+    async def handle_heartbeat(self) -> None:
+        """
+        Process heartbeat messages to keep track of active users.
+
+        Updates the user's last_seen timestamp in Redis
+        """
+        # Update user's last seen timestamp
+        active_users_key = f"chat_active_users:{self.room_group_name}"
+        user_data = json.dumps({
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'avatar_url': self.avatar_url,
+            'last_seen': self.get_timestamp()
+        })
+        self.redis_client.hset(active_users_key, self.user_id, user_data)
+
+    async def user_joined(self, event: Dict[str, Any]) -> None:
+        """
+        Handle user_joined events and relay to the WebSocket.
+
+        Args:
+            event (Dict[str, Any]): Event data containing user information
+        """
+        # Forward the event to the WebSocket
+        await self.send(text_data=json.dumps(event))
+
+    async def user_left(self, event: Dict[str, Any]) -> None:
+        """
+        Handle user_left events and relay to the WebSocket.
+
+        Args:
+            event (Dict[str, Any]): Event data containing user information
+        """
+        # Forward the event to the WebSocket
+        await self.send(text_data=json.dumps(event))
+
+    async def chat_message(self, event: Dict[str, Any]) -> None:
+        """
+        Handle chat_message events and relay to the WebSocket.
+
+        Args:
+            event (Dict[str, Any]): Event data containing message information
+        """
+        # Only send the message to the sender and recipient
+        if self.user_id == event['sender_id'] or self.user_id == event['recipient_id']:
+            await self.send(text_data=json.dumps(event))

@@ -14,7 +14,8 @@ A Django application that enables real-time collaborative editing in the Django 
 - 🔒 **Edit Lock Management** - Prevents concurrent edits to the same object
 - 👥 **User Presence Detection** - See who else is viewing the same object
 - 🔔 **Editor Attention System** - Request attention from the current editor
-- 💬 **Customizable Notifications** - Configure your own notification messages
+- 💬 **Real-time Chat** - Chat with other users viewing the same page
+- 🗣️ **Individual Conversations** - Open separate chat windows for each user
 - 👤 **Avatar Support** - Visual user identification with customizable avatars
 - 🔌 **Redis Integration** - Reliable lock management and message distribution
 - 🔄 **Django Channels** - WebSocket-based real-time communication
@@ -87,7 +88,14 @@ ADMIN_COLLABORATOR_OPTIONS = {
     'notification_request_interval': 15,  # Seconds between notification requests
     'notification_message': 'User {username} is requesting the editors attention.',
     'notification_button_text': 'Request Editor Attention',
-    'notification_request_sent_text': 'Request sent.'
+    'notification_request_sent_text': 'Request sent.',
+    # Chat settings
+    'enable_chat': True,  # Enable/disable the chat feature
+    'chat_user_list_title': 'Online Users',  # Title for the user list panel
+    'chat_empty_state_text': 'No other users online',  # Text when no users are online
+    'chat_start_conversation_text': 'No messages yet. Start the conversation!',  # Text for empty chat
+    'chat_input_placeholder': 'Type a message...',  # Placeholder text for chat input field
+    'chat_online_status_text': 'Online',  # Text for online status indicator
 }
 
 ADMIN_COLLABORATOR_ADMIN_URL = 'admin'  # Your admin URL prefix

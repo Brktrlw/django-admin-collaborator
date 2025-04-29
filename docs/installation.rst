@@ -71,7 +71,12 @@ Add the following to your project's ``settings.py``:
         "notification_request_interval": 15,  # Seconds between notification requests
         "notification_message": "User {username} is requesting the editors attention.",
         "notification_button_text": "Request Editor Attention",
-        "notification_request_sent_text": "Request sent."  # Message shown to the requester
+        "notification_request_sent_text": "Request sent.",  # Message shown to the requester
+        # Chat settings
+        "enable_chat": True,  # Enable/disable the chat feature
+        "chat_user_list_title": "Online Users",  # Title for the user list panel
+        "chat_empty_state_text": "No other users online",  # Text when no users are online
+        "chat_start_conversation_text": "No messages yet. Start the conversation!",  # Text for empty chat
     }
 
 3. Set Up ASGI Application

@@ -43,10 +43,37 @@ Features
 - 🔒 **Edit Lock Management** - Prevents concurrent edits to the same object
 - 👥 **User Presence Detection** - See who else is viewing the same object
 - 🔔 **Editor Attention System** - Request attention from the current editor
-- 💬 **Customizable Notifications** - Configure your own notification messages
+- 💬 **Real-time Chat System** - Chat with other users viewing the same page
+  - Individual chat windows for each user
+  - Online status indicators
+  - Customizable chat interface text
+  - User list panel with online status
 - 👤 **Avatar Support** - Visual user identification with customizable avatars
 - 🔌 **Redis Integration** - Reliable lock management and message distribution
 - 🔄 **Django Channels** - WebSocket-based real-time communication
+
+Chat System Features
+------------------
+
+The chat system provides a comprehensive set of features for real-time communication:
+
+- **User List Panel**
+  - Shows all users currently viewing the same page
+  - Displays online status with customizable text
+  - Click to start a conversation with any user
+
+- **Individual Chat Windows**
+  - Open multiple chat windows simultaneously
+  - Minimize/maximize chat windows
+  - Clear message history when closed
+
+- **Customizable Interface**
+  - Configure all text elements through settings
+
+- **Real-time Updates**
+  - Instant message delivery
+  - Live user presence updates
+  - Automatic window management
 
 Indices and tables
 =================

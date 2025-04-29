@@ -1,4 +1,3 @@
-
 from django import forms
 from django_admin_collaborator.defaults import (
     DEFAULT_ADMIN_COLLABORATOR_OPTIONS,
@@ -14,11 +13,16 @@ class CollaborativeAdminMixin:
     for real-time collaboration features.
     """
 
-    @property
-    def media(self):
-        extra = super().media
-        js = ["django_admin_collaborator/js/admin_edit.js"]
-        return forms.Media(js=[*extra._js, *js])
+    class Media:
+        js = [
+            "django_admin_collaborator/js/admin_edit.js",
+            "django_admin_collaborator/js/admin_chat.js"
+        ]
+        css = {
+            'all': [
+                "django_admin_collaborator/css/admin_chat.css"
+            ]
+        }
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         editor_mode_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
@@ -50,6 +54,27 @@ class CollaborativeAdminMixin:
         notification_request_sent_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
             "notification_request_sent_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["notification_request_sent_text"]
         )
+
+        # Chat settings
+        enable_chat = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "enable_chat", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["enable_chat"]
+        )
+        chat_user_list_title = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_user_list_title", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["chat_user_list_title"]
+        )
+        chat_empty_state_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_empty_state_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["chat_empty_state_text"]
+        )
+        chat_start_conversation_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_start_conversation_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS["chat_start_conversation_text"]
+        )
+        chat_input_placeholder = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_input_placeholder", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_input_placeholder", "Type a message...")
+        )
+        chat_online_status_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_online_status_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_online_status_text", "Online")
+        )
+
         response = super().change_view(request, object_id, form_url, extra_context)
         if hasattr(response, "render"):
             response.render()
@@ -65,6 +90,13 @@ class CollaborativeAdminMixin:
                 window.ADMIN_COLLABORATOR_NOTIFICATION_BUTTON_TEXT = '{notification_button_text}';
                 window.ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = '{admin_collaborator_websocket_connection_prefix_url}';
                 window.ADMIN_COLLABORATOR_NOTIFICATION_REQUEST_SENT_TEXT = '{notification_request_sent_text}';
+                window.ADMIN_COLLABORATOR_ENABLE_CHAT = {str(enable_chat).lower()};
+                window.ADMIN_COLLABORATOR_CHAT_USER_LIST_TITLE = '{chat_user_list_title}';
+                window.ADMIN_COLLABORATOR_CHAT_EMPTY_STATE_TEXT = '{chat_empty_state_text}';
+                window.ADMIN_COLLABORATOR_CHAT_START_CONVERSATION_TEXT = '{chat_start_conversation_text}';
+                window.ADMIN_COLLABORATOR_CHAT_INPUT_PLACEHOLDER = '{chat_input_placeholder}';
+                window.ADMIN_COLLABORATOR_CHAT_ONLINE_STATUS_TEXT = '{chat_online_status_text}';
+                document.body.dataset.userId = '{request.user.id}';
             </script>
             """.encode(
                 "utf-8"
