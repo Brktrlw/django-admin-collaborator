@@ -5,11 +5,6 @@
  * It allows users to see who else is on the page and chat with them in individual windows.
  */
 
-// Add CSS link to head
-const link = document.createElement('link');
-link.rel = 'stylesheet';
-link.href = '/static/django_admin_collaborator/css/admin_chat.css';
-document.head.appendChild(link);
 
 // Main Chat Manager class
 class AdminChatManager {
@@ -21,7 +16,6 @@ class AdminChatManager {
         this.activeUsers = {};  // {user_id: {username, email, avatar_url}}
         this.chatWindows = {};  // {user_id: ChatWindow instance}
         this.isConnected = false;
-        this.isChatInitialized = false;
         this.currentPath = window.location.pathname;
         this.sanitizedPath = this.sanitizePath(this.currentPath);
 
@@ -43,9 +37,6 @@ class AdminChatManager {
 
         // Set up heartbeat
         this.startHeartbeat();
-
-        // Mark as initialized
-        this.isChatInitialized = true;
 
         // Handle page navigation/unload
         window.addEventListener('beforeunload', this.handlePageUnload.bind(this));
@@ -764,7 +755,18 @@ class ChatWindow {
 }
 
 // Initialize chat when DOM is fully loaded
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
+    const path = window.location.pathname;
+    const adminUrl = window.ADMIN_COLLABORATOR_ADMIN_URL; // default: 'admin'
+    const adminMatch = path.match(new RegExp(`/${adminUrl}/(\\w+)/(\\w+)/(\\d+)/change/?`));
+    if (!adminMatch) {
+        // If we're not on a change page, try to match a detail page without /change/
+        const detailMatch = path.match(new RegExp(`/${adminUrl}/(\\w+)/(\\w+)/(\\d+)/?`));
+        if (!detailMatch) {
+            return
+        }
+    }
+
     // Only initialize on admin pages
     if (!document.querySelector('#user-tools') && !document.querySelector('.admin-title')) {
         return;

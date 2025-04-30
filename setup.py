@@ -13,7 +13,7 @@ with open('django_admin_collaborator/__init__.py', encoding='utf-8') as f:
             version = line.split('=')[1].strip().strip("'").strip('"')
             break
     else:
-        version = '0.4.0'
+        version = '0.4.1'
 
 project_urls = {
   'Read The Docs': 'https://django-admin-collaborator.readthedocs.io/en/latest/',

@@ -157,61 +157,56 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         - Removes user from the editor role if they were the active editor
         - Notifies other users about this user leaving
         - Leaves the channel group
+        - Stores editor ID as previous editor to allow reclaiming on reconnection
 
         Args:
             close_code (int): WebSocket close code
         """
         try:
             if hasattr(self, 'room_group_name'):
-                # Check if this user was the editor
+                # First, check if this user was the editor and capture that information
+                is_editor = False
                 editor_data: Optional[bytes] = self.redis_client.get(self.editor_key)
                 if editor_data:
                     editor_info: Dict[str, Any] = json.loads(editor_data)
                     if editor_info.get('editor_id') == self.user_id:
                         # Clear editor for this room
                         self.redis_client.delete(self.editor_key)
+                        is_editor = True
 
-                        # Notify the group that the editor has left
-                        await self.channel_layer.group_send(
-                            self.room_group_name,
-                            {
-                                'type': 'user_left',
-                                'user_id': self.user_id,
-                                'username': self.email,
-                            }
+                        # Store this editor ID as the previous editor to allow reclaiming on reconnection
+                        previous_editor_key = f"previous_editor:{self.room_group_name}"
+                        self.redis_client.setex(
+                            previous_editor_key,
+                            dt.timedelta(minutes=5),  # 5-minute grace period for reconnection
+                            str(self.user_id)
                         )
 
-                        # Also send specific lock_released message
-                        await self.channel_layer.group_send(
-                            self.room_group_name,
-                            {
-                                'type': 'lock_released',
-                                'user_id': self.user_id,
-                                'username': self.email,
-                            }
-                        )
-                    else:
-                        # Just a regular user leaving
-                        await self.channel_layer.group_send(
-                            self.room_group_name,
-                            {
-                                'type': 'user_left',
-                                'user_id': self.user_id,
-                                'username': self.email,
-                            }
-                        )
-                else:
-                    # Just a regular user leaving
+                # Prepare message data before leaving the group
+                message_data = {
+                    'type': 'user_left',
+                    'user_id': self.user_id,
+                    'username': self.email,
+                }
+
+                # Send messages to group (before we leave the group)
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    message_data
+                )
+
+                # Send lock_released message if we were the editor
+                if is_editor:
                     await self.channel_layer.group_send(
                         self.room_group_name,
                         {
-                            'type': 'user_left',
+                            'type': 'lock_released',
                             'user_id': self.user_id,
                             'username': self.email,
                         }
                     )
 
-                # Leave room group
+                # Now leave the group - do this after sending messages but before potential exception handling
                 await self.channel_layer.group_discard(
                     self.room_group_name,
                     self.channel_name
@@ -289,36 +284,123 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         Process a request to claim editor status for the current object.
 
         Only assigns editor status if no other user currently has it.
-        Sets a 2-minute expiration on the editor lock to handle disconnections.
+        Sets a 3-minute expiration on the editor lock to handle disconnections.
+        Gives priority to the previous editor during reconnection for a short grace period.
 
         Args:
             timestamp (Optional[str]): Optional timestamp string in ISO format
         """
-        # Only allow claiming if there's no current editor
-        editor_data: Optional[bytes] = self.redis_client.get(self.editor_key)
+        # Use a Redis transaction to protect against race conditions during editor claiming
+        # Get current editor data and previous editor data atomically
+        pipeline = self.redis_client.pipeline()
+        editor_key = self.editor_key
+        previous_editor_key = f"previous_editor:{self.room_group_name}"
 
-        if not editor_data:
-            # Set this user as the editor with a 2-minute expiration (in case of disconnection)
-            editor_info: Dict[str, Any] = {
+        pipeline.get(editor_key)
+        pipeline.get(previous_editor_key)
+        editor_data_bytes, previous_editor_data_bytes = pipeline.execute()
+
+        previous_editor_id = None
+        if previous_editor_data_bytes:
+            try:
+                previous_editor_id = int(previous_editor_data_bytes.decode('utf-8'))
+            except (ValueError, TypeError):
+                previous_editor_id = None
+
+        # Check if this user is the previous editor
+        is_previous_editor = previous_editor_id == self.user_id
+
+        # Attempt to claim editor status based on conditions
+        if editor_data_bytes:
+            # There's already an active editor
+            editor_info = json.loads(editor_data_bytes)
+            current_editor_id = editor_info.get('editor_id')
+
+            # Only allow reclaiming if this user was the previous editor and is not the current active editor
+            if is_previous_editor and current_editor_id != self.user_id:
+                # Record new editor session with reclaim
+                editor_info = {
+                    'editor_id': self.user_id,
+                    'editor_name': self.email,
+                    'last_heartbeat': self.get_timestamp(),
+                    'reclaimed': True  # Mark as a reclaimed session
+                }
+
+                # Use a Redis transaction to update the editor
+                pipeline = self.redis_client.pipeline()
+                pipeline.setex(
+                    editor_key,
+                    dt.timedelta(minutes=3),
+                    json.dumps(editor_info)
+                )
+                pipeline.delete(previous_editor_key)  # Clear previous editor key
+                pipeline.execute()
+
+                # Broadcast the new editor status
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'editor_status',
+                        'editor_id': self.user_id,
+                        'editor_name': self.email,
+                    }
+                )
+
+                logger.info(f"User {self.user_id} ({self.email}) reclaimed editor status")
+        else:
+            # No active editor
+            editor_info = {
                 'editor_id': self.user_id,
                 'editor_name': self.email,
                 'last_heartbeat': self.get_timestamp()
             }
-            self.redis_client.setex(
-                self.editor_key,
-                dt.timedelta(minutes=2),  # Auto-expire after 2 minutes without heartbeat
-                json.dumps(editor_info)
-            )
 
-            # Broadcast the new editor status
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'editor_status',
-                    'editor_id': self.user_id,
-                    'editor_name': self.email,
-                }
-            )
+            # Give priority to previous editors during claim attempts
+            # If this user was the previous editor, set the editor immediately
+            # Otherwise, check if there's a grace period for a previous editor that might reconnect
+            if is_previous_editor:
+                # This was the previous editor - claim immediately
+                pipeline = self.redis_client.pipeline()
+                pipeline.setex(
+                    editor_key,
+                    dt.timedelta(minutes=3),
+                    json.dumps(editor_info)
+                )
+                pipeline.delete(previous_editor_key)  # Clear previous editor key
+                pipeline.execute()
+
+                # Broadcast the new editor status
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'editor_status',
+                        'editor_id': self.user_id,
+                        'editor_name': self.email,
+                    }
+                )
+
+                logger.info(f"Previous editor {self.user_id} ({self.email}) claimed editor status")
+            elif not previous_editor_id:
+                # No previous editor or grace period expired - new user can claim
+                pipeline = self.redis_client.pipeline()
+                pipeline.setex(
+                    editor_key,
+                    dt.timedelta(minutes=3),
+                    json.dumps(editor_info)
+                )
+                pipeline.execute()
+
+                # Broadcast the new editor status
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'editor_status',
+                        'editor_id': self.user_id,
+                        'editor_name': self.email,
+                    }
+                )
+
+                logger.info(f"New editor {self.user_id} ({self.email}) claimed editor status")
 
     async def handle_heartbeat(self) -> None:
         """
@@ -327,6 +409,9 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         Updates the last heartbeat timestamp and resets the expiration time
         for the editor lock in Redis. Only processes heartbeats from the
         current editor.
+
+        Also stores the current editor ID as the previous editor with a longer
+        expiration time to handle temporary disconnections.
         """
         # Update last heartbeat time for the current editor
         editor_data: Optional[bytes] = self.redis_client.get(self.editor_key)
@@ -334,11 +419,20 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
             editor_info: Dict[str, Any] = json.loads(editor_data)
             if editor_info.get('editor_id') == self.user_id:
                 editor_info['last_heartbeat'] = self.get_timestamp()
-                # Reset the expiration time
+                # Reset the expiration time with increased duration (3 minutes instead of 2)
                 self.redis_client.setex(
                     self.editor_key,
-                    dt.timedelta(minutes=2),
+                    dt.timedelta(minutes=3), 
                     json.dumps(editor_info)
+                )
+
+                # Store this editor ID as the previous editor with a longer grace period (10 minutes)
+                # This helps with reconnection to reclaim editor status
+                previous_editor_key = f"previous_editor:{self.room_group_name}"
+                self.redis_client.setex(
+                    previous_editor_key,
+                    dt.timedelta(minutes=10),
+                    str(self.user_id)
                 )
 
     async def handle_content_updated(self, timestamp: Optional[str]) -> None:
@@ -391,6 +485,10 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
             if editor_info.get('editor_id') == self.user_id:
                 # Clear the editor
                 self.redis_client.delete(self.editor_key)
+
+                # Since this is a deliberate release, also clear previous editor record
+                previous_editor_key = f"previous_editor:{self.room_group_name}"
+                self.redis_client.delete(previous_editor_key)
 
                 # Get the latest data timestamp
                 latest_timestamp: str = await self.get_last_modified()
@@ -657,7 +755,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 active_users_key = f"chat_active_users:{self.room_group_name}"
                 self.redis_client.hdel(active_users_key, self.user_id)
 
-                # Notify the group that the user has left
+                # Notify the group that the user has left (before leaving the group)
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
@@ -668,7 +766,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     }
                 )
 
-                # Leave room group
+                # Leave room group (after sending messages)
                 await self.channel_layer.group_discard(
                     self.room_group_name,
                     self.channel_name

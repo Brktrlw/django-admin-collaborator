@@ -491,8 +491,9 @@ class WebSocketManager {
         this.socket = null;
         this.reconnectAttempts = 0;
         this.reconnectTimer = null;
-        this.MAX_RECONNECT_ATTEMPTS = 5;
+        this.MAX_RECONNECT_ATTEMPTS = 2;
         this.isNavigatingAway = false;
+        this.wasDisconnected = false; // Track if there was a disconnect
     }
 
     /**
@@ -517,6 +518,14 @@ class WebSocketManager {
 
         this.socket = new WebSocket(wssSource);
         this.setupEventHandlers();
+
+        // Set a connection timeout - if the connection doesn't open within 5 seconds, try again
+        this.connectionTimeout = setTimeout(() => {
+            if (this.socket.readyState !== WebSocket.OPEN) {
+                this.socket.close();
+                this.attemptReconnect();
+            }
+        }, 5000);
     }
 
     /**
@@ -525,7 +534,22 @@ class WebSocketManager {
     setupEventHandlers() {
         this.socket.onopen = () => {
             console.log('WebSocket connection established');
+
+            // Clear connection timeout
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+
+            // If this was a reconnection, notify handlers
+            if (this.wasDisconnected && this.reconnectAttempts > 0) {
+                if (this.handlers.onReconnectSuccess) {
+                    this.handlers.onReconnectSuccess();
+                }
+            }
+
             this.reconnectAttempts = 0; // Reset counter on successful connection
+            this.wasDisconnected = false; // Reset disconnect flag
         };
 
         this.socket.onmessage = (e) => {
@@ -535,6 +559,7 @@ class WebSocketManager {
 
         this.socket.onclose = (e) => {
             console.log('WebSocket connection closed');
+            this.wasDisconnected = true; // Set disconnect flag
 
             // Try to reconnect if not deliberately closed
             if (!this.isNavigatingAway && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
@@ -719,6 +744,8 @@ class CollaborativeEditor {
         this.refreshTimer = null;
         this.heartbeatInterval = null;
         this.lastAttentionRequestTime = 0; // Track when last attention request was sent
+        this.wasDisconnected = false; // Track if we were previously disconnected
+        this.wasEditor = false; // Track if we were previously the editor
 
         // Create WebSocket manager with handlers
         this.wsManager = new WebSocketManager(pathInfo, {
@@ -729,6 +756,7 @@ class CollaborativeEditor {
             onLockReleased: this.handleLockReleased.bind(this),
             onReconnectAttempt: this.handleReconnectAttempt.bind(this),
             onMaxReconnectAttemptsReached: this.handleMaxReconnectAttemptsReached.bind(this),
+            onReconnectSuccess: this.handleReconnectSuccess.bind(this),
             onAttentionRequested: this.handleAttentionRequested.bind(this)
         });
     }
@@ -751,11 +779,23 @@ class CollaborativeEditor {
      * Start heartbeat interval to maintain editor status
      */
     startHeartbeat() {
+        // Send the first heartbeat immediately if we become the editor
+        if (this.canEdit) {
+            this.wsManager.sendHeartbeat();
+        }
+
+        // Clear any existing heartbeat interval
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+
+        // Set up more frequent heartbeats to maintain editor status
         this.heartbeatInterval = setInterval(() => {
             if (this.canEdit) {
+                console.log('Sending editor heartbeat');
                 this.wsManager.sendHeartbeat();
             }
-        }, 30000); // Send heartbeat every 30 seconds
+        }, 15000); // Send heartbeat every 15 seconds (reduced from 30s)
     }
 
     /**
@@ -820,6 +860,7 @@ class CollaborativeEditor {
         if (this.currentEditor === this.myUserId) {
             // We are the editor
             this.canEdit = true;
+            this.wasEditor = true; // Update wasEditor flag for reconnection purposes
             this.uiManager.showSuccessMessage(window.ADMIN_COLLABORATOR_EDITOR_MODE_TEXT);
             this.uiManager.enableForm(
                 // Submit callback
@@ -827,6 +868,9 @@ class CollaborativeEditor {
                 // Save button callback
                 () => this.wsManager.releaseLock()
             );
+
+            // Restart heartbeat interval with the updated canEdit value
+            this.startHeartbeat();
         } else if (this.currentEditor) {
             // Someone else is editing
             this.canEdit = false;
@@ -884,7 +928,57 @@ class CollaborativeEditor {
      * @param {number} attemptNumber - The current reconnection attempt number
      */
     handleReconnectAttempt(attemptNumber) {
+        this.wasDisconnected = true;
         this.uiManager.showWarningMessage(`Connection lost. Trying to reconnect... (Attempt ${attemptNumber})`);
+    }
+
+    /**
+     * Handle successful reconnection
+     */
+    handleReconnectSuccess() {
+        this.wasDisconnected = false;
+
+        // If we were previously the editor, make multiple attempts to reclaim editor status
+        if (this.wasEditor) {
+            console.log('Attempting to reclaim editor status after reconnection');
+
+            // First attempt immediately
+            this.wsManager.claimEditor();
+
+            // Additional attempts with increasing delays to account for backend processing
+            // This helps in case of race conditions with other clients
+            setTimeout(() => {
+                if (this.currentEditor !== this.myUserId) {
+                    console.log('Retry #1 to reclaim editor status');
+                    this.wsManager.claimEditor();
+                }
+            }, 1000);
+
+            setTimeout(() => {
+                if (this.currentEditor !== this.myUserId) {
+                    console.log('Retry #2 to reclaim editor status');
+                    this.wsManager.claimEditor();
+                }
+            }, 3000);
+        }
+
+        // Re-request editor status to get back in sync
+        this.wsManager.requestEditorStatus();
+
+        // Directly restore the appropriate message based on current editor status
+        if (this.currentEditor === this.myUserId) {
+            // We are the editor
+            this.uiManager.showSuccessMessage(window.ADMIN_COLLABORATOR_EDITOR_MODE_TEXT);
+        } else if (this.currentEditor) {
+            // Someone else is editing
+            let viewerModeText = window.ADMIN_COLLABORATOR_VIEWER_MODE_TEXT;
+            viewerModeText = viewerModeText.replace('{editor_name}', this.currentEditorName);
+            this.uiManager.showWarningMessage(viewerModeText);
+        } else {
+            // No editor currently assigned, we'll wait for the requestEditorStatus response
+            // Clear any warning messages in the meantime
+            this.uiManager.hideWarningMessage();
+        }
     }
 
     /**
@@ -911,6 +1005,11 @@ class CollaborativeEditor {
         // Clean up resources
         clearInterval(this.heartbeatInterval);
         clearTimeout(this.refreshTimer);
+
+        // If we're the editor, update the wasEditor flag for potential reconnection
+        if (this.canEdit && this.currentEditor === this.myUserId) {
+            this.wasEditor = true;
+        }
 
         // Release lock if we're the editor
         if (this.canEdit) {
