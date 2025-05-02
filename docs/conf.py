@@ -24,7 +24,7 @@ except Exception as e:
 project = 'Django Admin Collaborator'
 copyright = '2023-2025, Berkay Şen'
 author = 'Berkay Şen'
-release = '0.4.1'
+release = '0.4.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
