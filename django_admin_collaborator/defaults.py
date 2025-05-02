@@ -17,6 +17,9 @@ DEFAULT_ADMIN_COLLABORATOR_OPTIONS = {
     "chat_start_conversation_text": "No messages yet. Start the conversation!",  # Text for empty chat
     "chat_input_placeholder": "Type a message...",  # Placeholder text for chat input field
     "chat_online_status_text": "Online",  # Text for online status indicator
+    "chat_offline_status_text": "Offline",  # Text for offline status indicator
+    "chat_offline_placeholder": "User is offline. Messages cannot be sent.",  # Placeholder text when user is offline
+    "chat_cannot_send_message": "Cannot send message. User is offline.",  # Message shown when trying to send to offline user
 }
 ADMIN_COLLABORATOR_ADMIN_URL = "admin"
 ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = "admin/collaboration"

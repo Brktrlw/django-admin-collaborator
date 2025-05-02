@@ -74,6 +74,15 @@ class CollaborativeAdminMixin:
         chat_online_status_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
             "chat_online_status_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_online_status_text", "Online")
         )
+        chat_offline_status_text = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_offline_status_text", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_offline_status_text", "Offline")
+        )
+        chat_offline_placeholder = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_offline_placeholder", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_offline_placeholder", "User is offline. Messages cannot be sent.")
+        )
+        chat_cannot_send_message = getattr(settings, "ADMIN_COLLABORATOR_OPTIONS", {}).get(
+            "chat_cannot_send_message", DEFAULT_ADMIN_COLLABORATOR_OPTIONS.get("chat_cannot_send_message", "Cannot send message. User is offline.")
+        )
 
         response = super().change_view(request, object_id, form_url, extra_context)
         if hasattr(response, "render"):
@@ -96,6 +105,9 @@ class CollaborativeAdminMixin:
                 window.ADMIN_COLLABORATOR_CHAT_START_CONVERSATION_TEXT = '{chat_start_conversation_text}';
                 window.ADMIN_COLLABORATOR_CHAT_INPUT_PLACEHOLDER = '{chat_input_placeholder}';
                 window.ADMIN_COLLABORATOR_CHAT_ONLINE_STATUS_TEXT = '{chat_online_status_text}';
+                window.ADMIN_COLLABORATOR_CHAT_OFFLINE_STATUS_TEXT = '{chat_offline_status_text}';
+                window.ADMIN_COLLABORATOR_CHAT_OFFLINE_PLACEHOLDER = '{chat_offline_placeholder}';
+                window.ADMIN_COLLABORATOR_CHAT_CANNOT_SEND_MESSAGE = '{chat_cannot_send_message}';
                 document.body.dataset.userId = '{request.user.id}';
             </script>
             """.encode(

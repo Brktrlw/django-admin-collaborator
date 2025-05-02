@@ -271,19 +271,20 @@ class AdminChatManager {
     }
 
     /**
-     * Handle list of active users
-     * @param {Array} users - List of active users
+     * Handle the active users list
+     * @param {Array} users - Array of active user objects
      */
     handleActiveUsersList(users) {
-        // Clear existing users
-        this.activeUsers = {};
-
-        // Add each user (excluding self)
+        // Process each user
         users.forEach(user => {
-            // Skip the current user
-            if (user.user_id !== this.getCurrentUserId()) {
-                this.activeUsers[user.user_id] = user;
-            }
+            // Store user data
+            this.activeUsers[user.user_id] = {
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email,
+                avatar_url: user.avatar_url,
+                online: true
+            };
         });
 
         // Update UI
@@ -295,17 +296,37 @@ class AdminChatManager {
      * @param {Object} data - User data
      */
     handleUserJoined(data) {
-        // Add user to active users
+        // Check if user exists before updating
+        const existingUser = this.activeUsers[data.user_id];
+        const wasOffline = existingUser && !existingUser.online;
+
+        // Store user data
         this.activeUsers[data.user_id] = {
             user_id: data.user_id,
             username: data.username,
-            email: data.email,
+            email: data.username, // Fallback for display
             avatar_url: data.avatar_url,
-            last_seen: data.timestamp
+            online: true
         };
 
         // Update UI
         this.updateUserList();
+
+        // If there's an open chat window with this user, update it
+        if (this.chatWindows[data.user_id]) {
+            const chatWindow = this.chatWindows[data.user_id];
+
+            // Update userData property in the chat window to have current status
+            chatWindow.userData = this.activeUsers[data.user_id];
+
+            // If user was previously offline, add a system message
+            if (wasOffline) {
+                chatWindow.addSystemMessage(`${data.username} is now online.`);
+            }
+
+            // Update all UI elements based on current status
+            this.updateChatWindowStatus(chatWindow);
+        }
     }
 
     /**
@@ -313,12 +334,47 @@ class AdminChatManager {
      * @param {Object} data - User data
      */
     handleUserLeft(data) {
-        // Remove user from active users
-        delete this.activeUsers[data.user_id];
+        // Update user status to offline instead of removing them
+        if (this.activeUsers[data.user_id]) {
+            // Update user data to offline
+            this.activeUsers[data.user_id].online = false;
 
-        // Close chat window if open
-        if (this.chatWindows[data.user_id]) {
-            this.closeChatWindow(data.user_id);
+            // Update the user's status in the user list
+            const userItem = this.userListContainer.querySelector(`[data-user-id="${data.user_id}"]`);
+            if (userItem) {
+                const statusIndicator = userItem.querySelector('.admin-chat-status-indicator');
+                if (statusIndicator) {
+                    statusIndicator.classList.remove('online');
+                    statusIndicator.classList.add('offline');
+                }
+
+                const onlineStatus = userItem.querySelector('.online-status');
+                if (onlineStatus) {
+                    onlineStatus.textContent = window.ADMIN_COLLABORATOR_CHAT_OFFLINE_STATUS_TEXT || 'Offline';
+                }
+            }
+
+            // Update the chat window if open
+            if (this.chatWindows[data.user_id]) {
+                const chatWindow = this.chatWindows[data.user_id];
+
+                // Update userData property in the chat window
+                chatWindow.userData = this.activeUsers[data.user_id];
+
+                // Add a system message indicating the user went offline
+                chatWindow.addSystemMessage(`${this.activeUsers[data.user_id].username || this.activeUsers[data.user_id].email} is now offline.`);
+
+                // Update all UI elements based on current status
+                this.updateChatWindowStatus(chatWindow);
+            }
+        } else {
+            // If we don't have the user in our active users list, just remove them as before
+            delete this.activeUsers[data.user_id];
+
+            // Close chat window if open
+            if (this.chatWindows[data.user_id]) {
+                this.closeChatWindow(data.user_id);
+            }
         }
 
         // Update UI
@@ -341,9 +397,36 @@ class AdminChatManager {
         // Get the other user's ID (the one we're chatting with)
         const otherUserId = senderId === this.getCurrentUserId() ? recipientId : senderId;
 
+        // If we received a message from another user, they must be online
+        // Update their status if needed
+        if (senderId !== this.getCurrentUserId() && this.activeUsers[senderId]) {
+            const wasOffline = this.activeUsers[senderId].online === false;
+
+            // Update to online
+            this.activeUsers[senderId].online = true;
+
+            // Update UI if user was previously offline
+            if (wasOffline) {
+                this.updateUserList();
+
+                // If chat window exists, update its status and add a system message
+                if (this.chatWindows[senderId]) {
+                    const chatWindow = this.chatWindows[senderId];
+                    chatWindow.userData = this.activeUsers[senderId];
+                    chatWindow.addSystemMessage(`${this.activeUsers[senderId].username || this.activeUsers[senderId].email} is now online.`);
+                    this.updateChatWindowStatus(chatWindow);
+                }
+            }
+        }
+
         // Open chat window if not already open
         if (!this.chatWindows[otherUserId]) {
             this.openChatWindow(otherUserId);
+        } else {
+            // Ensure user data and UI are up to date
+            const chatWindow = this.chatWindows[otherUserId];
+            chatWindow.userData = this.activeUsers[otherUserId];
+            this.updateChatWindowStatus(chatWindow);
         }
 
         // Add message to chat window
@@ -416,11 +499,13 @@ class AdminChatManager {
         status.className = 'admin-chat-status';
 
         const statusIndicator = document.createElement('span');
-        statusIndicator.className = 'admin-chat-status-indicator online';
+        statusIndicator.className = `admin-chat-status-indicator ${user.online ? 'online' : 'offline'}`;
 
         const onlineStatus = document.createElement('span');
         onlineStatus.className = 'online-status';
-        onlineStatus.textContent = window.ADMIN_COLLABORATOR_CHAT_ONLINE_STATUS_TEXT || 'Online';
+        onlineStatus.textContent = user.online ?
+            (window.ADMIN_COLLABORATOR_CHAT_ONLINE_STATUS_TEXT || 'Online') :
+            (window.ADMIN_COLLABORATOR_CHAT_OFFLINE_STATUS_TEXT || 'Offline');
 
         status.appendChild(statusIndicator);
         status.appendChild(onlineStatus);
@@ -485,8 +570,16 @@ class AdminChatManager {
     openChatWindow(userId) {
         // Check if window already exists
         if (this.chatWindows[userId]) {
-            // Just focus the window
-            this.chatWindows[userId].focus();
+            // Just focus the window and ensure user data is up to date
+            const chatWindow = this.chatWindows[userId];
+
+            // Update user data to ensure it has the latest status
+            chatWindow.userData = this.activeUsers[userId];
+
+            // Update UI elements based on current online status
+            this.updateChatWindowStatus(chatWindow);
+
+            chatWindow.focus();
             return;
         }
 
@@ -503,6 +596,57 @@ class AdminChatManager {
 
         // Add to container
         this.chatContainer.appendChild(chatWindow.element);
+    }
+
+    /**
+     * Update chat window status based on user online state
+     * @param {ChatWindow} chatWindow - The chat window to update
+     */
+    updateChatWindowStatus(chatWindow) {
+        const userData = chatWindow.userData;
+        const isOnline = userData && userData.online !== false;
+
+        // Update header style
+        const header = chatWindow.element.querySelector('.admin-chat-window-header');
+        if (header) {
+            if (isOnline) {
+                header.classList.remove('offline-user');
+            } else {
+                header.classList.add('offline-user');
+            }
+        }
+
+        // Update input field
+        if (chatWindow.inputElement) {
+            chatWindow.inputElement.disabled = !isOnline;
+            chatWindow.inputElement.placeholder = isOnline
+                ? (window.ADMIN_COLLABORATOR_CHAT_INPUT_PLACEHOLDER || 'Type a message...')
+                : (window.ADMIN_COLLABORATOR_CHAT_OFFLINE_PLACEHOLDER || 'User is offline. Messages cannot be sent.');
+        }
+
+        // Update send button
+        const sendBtn = chatWindow.element.querySelector('.admin-chat-send-btn');
+        if (sendBtn) {
+            sendBtn.disabled = !isOnline;
+        }
+
+        // Update status indicator in title
+        const windowTitle = chatWindow.element.querySelector('.admin-chat-window-title');
+        if (windowTitle) {
+            // Remove existing status if any
+            const existingStatus = windowTitle.querySelector('.admin-chat-window-status');
+            if (existingStatus) {
+                existingStatus.remove();
+            }
+
+            // Add offline status if user is offline
+            if (!isOnline) {
+                const status = document.createElement('span');
+                status.className = 'admin-chat-window-status';
+                status.textContent = window.ADMIN_COLLABORATOR_CHAT_OFFLINE_STATUS_TEXT || 'Offline';
+                windowTitle.appendChild(status);
+            }
+        }
     }
 
     /**
@@ -556,6 +700,11 @@ class ChatWindow {
         const header = document.createElement('div');
         header.className = 'admin-chat-window-header';
 
+        // Add offline class if user is offline
+        if (this.userData.online === false) {
+            header.classList.add('offline-user');
+        }
+
         // User info in header
         const title = document.createElement('div');
         title.className = 'admin-chat-window-title';
@@ -580,6 +729,14 @@ class ChatWindow {
 
         title.appendChild(avatar);
         title.appendChild(username);
+
+        // Add online/offline status if needed
+        if (this.userData.online === false) {
+            const status = document.createElement('span');
+            status.className = 'admin-chat-window-status';
+            status.textContent = window.ADMIN_COLLABORATOR_CHAT_OFFLINE_STATUS_TEXT || 'Offline';
+            title.appendChild(status);
+        }
 
         // Window actions
         const actions = document.createElement('div');
@@ -641,8 +798,15 @@ class ChatWindow {
         this.inputElement = document.createElement('input');
         this.inputElement.type = 'text';
         this.inputElement.className = 'admin-chat-input';
-        this.inputElement.placeholder = window.ADMIN_COLLABORATOR_CHAT_INPUT_PLACEHOLDER || 'Type a message...';
+        this.inputElement.placeholder = this.userData.online === false ?
+            (window.ADMIN_COLLABORATOR_CHAT_OFFLINE_PLACEHOLDER || 'User is offline. Messages cannot be sent.') :
+            (window.ADMIN_COLLABORATOR_CHAT_INPUT_PLACEHOLDER || 'Type a message...');
         this.inputElement.addEventListener('keydown', this.handleInputKeydown.bind(this));
+
+        // Disable input if user is offline
+        if (this.userData.online === false) {
+            this.inputElement.disabled = true;
+        }
 
         // Send button
         const sendBtn = document.createElement('button');
@@ -650,6 +814,11 @@ class ChatWindow {
         sendBtn.innerHTML = '&#10148;'; // Right arrow
         sendBtn.setAttribute('aria-label', 'Send message');
         sendBtn.addEventListener('click', this.sendMessage.bind(this));
+
+        // Disable send button if user is offline
+        if (this.userData.online === false) {
+            sendBtn.disabled = true;
+        }
 
         inputContainer.appendChild(this.inputElement);
         inputContainer.appendChild(sendBtn);
@@ -699,6 +868,20 @@ class ChatWindow {
     sendMessage() {
         const message = this.inputElement.value.trim();
         if (!message) return;
+
+        // Always check the latest user status from the manager before sending
+        const currentUserData = this.manager.activeUsers[this.userId];
+        const isOnline = currentUserData && currentUserData.online !== false;
+
+        // Don't allow sending messages to offline users
+        if (!isOnline) {
+            // Update UI to reflect offline status (in case it wasn't updated)
+            this.manager.updateChatWindowStatus(this);
+
+            // Add a system message indicating the user is offline
+            this.addSystemMessage(window.ADMIN_COLLABORATOR_CHAT_CANNOT_SEND_MESSAGE || 'Cannot send message. User is offline.');
+            return;
+        }
 
         // Clear input
         this.inputElement.value = '';
@@ -751,6 +934,29 @@ class ChatWindow {
         if (this.isMinimized) {
             this.toggleMinimize();
         }
+    }
+
+    /**
+     * Add a system message to the chat
+     * @param {string} message - System message
+     */
+    addSystemMessage(message) {
+        // Remove empty state if present
+        const emptyState = this.messagesContainer.querySelector('.admin-chat-empty');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        // Create system message element
+        const systemMessage = document.createElement('div');
+        systemMessage.className = 'admin-chat-system-message';
+        systemMessage.textContent = message;
+
+        // Add to container
+        this.messagesContainer.appendChild(systemMessage);
+
+        // Scroll to bottom
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
     }
 }
 
