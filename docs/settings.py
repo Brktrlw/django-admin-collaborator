@@ -61,6 +61,12 @@ CHANNEL_LAYERS = {
 ADMIN_COLLABORATOR_REDIS_URL = 'redis://localhost:6379/0'
 ADMIN_COLLABORATOR_ADMIN_URL = 'admin'
 
+# Redis connection resilience settings
+ADMIN_COLLABORATOR_REDIS_MAX_RETRIES = 3  # Maximum number of retry attempts for Redis operations
+ADMIN_COLLABORATOR_REDIS_RETRY_DELAY = 0.5  # Delay between retries in seconds (uses exponential backoff)
+ADMIN_COLLABORATOR_REDIS_SOCKET_TIMEOUT = 5  # Redis connection timeout in seconds
+ADMIN_COLLABORATOR_REDIS_MAX_CONNECTIONS = 10  # Maximum number of connections in the Redis connection pool
+
 DEFAULT_ADMIN_COLLABORATOR_OPTIONS = {
     "editor_mode_text": "You are in editor mode.",
     "viewer_mode_text": "This page is being edited by {editor_name}. You cannot make changes until they leave.",

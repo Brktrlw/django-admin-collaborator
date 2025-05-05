@@ -62,6 +62,12 @@ Add the following to your project's ``settings.py``:
     # Optional: Configure WebSocket connection URL prefix
     ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = 'admin/collaboration'
 
+    # Optional: Redis connection resilience settings
+    ADMIN_COLLABORATOR_REDIS_MAX_RETRIES = 3  # Maximum retry attempts for Redis operations
+    ADMIN_COLLABORATOR_REDIS_RETRY_DELAY = 0.5  # Delay between retries (seconds, uses exponential backoff)
+    ADMIN_COLLABORATOR_REDIS_SOCKET_TIMEOUT = 5  # Redis connection timeout (seconds)
+    ADMIN_COLLABORATOR_REDIS_MAX_CONNECTIONS = 10  # Maximum connections in the Redis pool
+
     # Optional: Customize notification messages and avatar settings
     ADMIN_COLLABORATOR_OPTIONS = {
         "editor_mode_text": "You are in editor mode.",
@@ -132,3 +138,22 @@ If you're deploying this application on Heroku, ensure that you configure the da
         import django_heroku
         django_heroku.settings(locals())
         DATABASES['default']['CONN_MAX_AGE'] = 0
+
+Redis Connection Resilience
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For production deployments, especially on platforms like Heroku, you may experience occasional "Connection reset by peer" errors with Redis. The package includes built-in resilience features that can be configured:
+
+.. code-block:: python
+
+    # Increase retry attempts for unstable connections
+    ADMIN_COLLABORATOR_REDIS_MAX_RETRIES = 5
+
+    # Adjust backoff delay between retries
+    ADMIN_COLLABORATOR_REDIS_RETRY_DELAY = 0.5  # seconds
+
+    # Increase socket timeout for slow network conditions
+    ADMIN_COLLABORATOR_REDIS_SOCKET_TIMEOUT = 10  # seconds
+
+    # Adjust connection pool size based on your application's traffic
+    ADMIN_COLLABORATOR_REDIS_MAX_CONNECTIONS = 20

@@ -19,6 +19,7 @@ A Django application that enables real-time collaborative editing in the Django 
 - 👤 **Avatar Support** - Visual user identification with customizable avatars
 - 🔌 **Redis Integration** - Reliable lock management and message distribution
 - 🔄 **Django Channels** - WebSocket-based real-time communication
+- 🛡️ **Connection Resilience** - Automatic retry mechanism for Redis operations with exponential backoff
 
 ## Overview
 
@@ -101,6 +102,12 @@ ADMIN_COLLABORATOR_OPTIONS = {
 ADMIN_COLLABORATOR_ADMIN_URL = 'admin'  # Your admin URL prefix
 ADMIN_COLLABORATOR_REDIS_URL = 'redis://localhost:6379/0'  # Redis connection URL
 ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = 'admin/collaboration'  # WebSocket connection URL prefix
+
+# Redis connection resilience settings
+ADMIN_COLLABORATOR_REDIS_MAX_RETRIES = 3  # Maximum retry attempts for Redis operations
+ADMIN_COLLABORATOR_REDIS_RETRY_DELAY = 0.5  # Delay between retries in seconds (uses exponential backoff)
+ADMIN_COLLABORATOR_REDIS_SOCKET_TIMEOUT = 5  # Redis connection timeout in seconds
+ADMIN_COLLABORATOR_REDIS_MAX_CONNECTIONS = 10  # Maximum connections in the Redis connection pool
 ```
 
 ## Usage
@@ -161,6 +168,8 @@ if not DEBUG:
     django_heroku.settings(locals())
     DATABASES['default']['CONN_MAX_AGE'] = 0
 ```
+
+These settings enable automatic retries with exponential backoff when Redis connection errors occur.
 
 ## Documentation
 
