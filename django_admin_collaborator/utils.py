@@ -5,6 +5,7 @@ from django_admin_collaborator.defaults import (
     get_admin_collaborator_websocket_connection_prefix_url
 )
 from django.conf import settings
+from django_admin_collaborator.templatetags.admin_collaborator_tags import load_chat_colors
 
 class CollaborativeAdminMixin:
     """
@@ -87,6 +88,10 @@ class CollaborativeAdminMixin:
         response = super().change_view(request, object_id, form_url, extra_context)
         if hasattr(response, "render"):
             response.render()
+            # Add chat color styles
+            chat_color_styles = load_chat_colors()
+            response.content += chat_color_styles.encode("utf-8")
+
             response.content += f"""
             <script>
                 window.ADMIN_COLLABORATOR_EDITOR_MODE_TEXT = '{editor_mode_text}';

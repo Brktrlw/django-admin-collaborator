@@ -53,6 +53,35 @@ You can customize the chat feature through settings in your ``settings.py`` file
         "chat_online_status_text": "Online",  # Text for online status indicator
     }
 
+Customizing Chat Colors
+~~~~~~~~~~~~~~~~~~~~~~~
+
+You can further customize the appearance of the chat interface by overriding the default colors.
+These settings allow you to match the chat's look and feel with your admin theme.
+
+The following color settings are available:
+
+- ``CHAT_PRIMARY_COLOR``: The primary color used for chat headers, sent messages, and buttons.
+- ``CHAT_PRIMARY_HOVER_COLOR``: The hover color for primary elements.
+- ``CHAT_BACKGROUND_COLOR``: The background color of chat windows and the user list.
+- ``CHAT_TEXT_COLOR``: The color of text in received messages and user information.
+- ``CHAT_BORDER_COLOR``: The color of borders and separators within the chat UI.
+
+Example configuration in ``settings.py``:
+
+.. code-block:: python
+
+    ADMIN_COLLABORATOR_OPTIONS = {
+        # ... other general and chat settings ...
+
+        # Chat Color Settings
+        "CHAT_PRIMARY_COLOR": "#C0FFEE",
+        "CHAT_PRIMARY_HOVER_COLOR": "#A0CFEE",
+        "CHAT_BACKGROUND_COLOR": "#2c3e50",
+        "CHAT_TEXT_COLOR": "#ecf0f1",
+        "CHAT_BORDER_COLOR": "#34495e",
+    }
+
 Chat UI Features
 ^^^^^^^^^^^^^
 

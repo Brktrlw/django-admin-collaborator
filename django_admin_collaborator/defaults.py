@@ -20,6 +20,12 @@ DEFAULT_ADMIN_COLLABORATOR_OPTIONS = {
     "chat_offline_status_text": "Offline",  # Text for offline status indicator
     "chat_offline_placeholder": "User is offline. Messages cannot be sent.",  # Placeholder text when user is offline
     "chat_cannot_send_message": "Cannot send message. User is offline.",  # Message shown when trying to send to offline user
+    # Chat color settings
+    "CHAT_PRIMARY_COLOR": "#4f46e5",
+    "CHAT_PRIMARY_HOVER_COLOR": "#4338ca",
+    "CHAT_BACKGROUND_COLOR": "#1e1e1e",
+    "CHAT_TEXT_COLOR": "#e5e7eb",
+    "CHAT_BORDER_COLOR": "#374151",
 }
 ADMIN_COLLABORATOR_ADMIN_URL = "admin"
 ADMIN_COLLABORATOR_WEBSOCKET_CONNECTION_PREFIX_URL = "admin/collaboration"
