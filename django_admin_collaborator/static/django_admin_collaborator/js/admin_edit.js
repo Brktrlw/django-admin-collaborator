@@ -789,13 +789,16 @@ class CollaborativeEditor {
             clearInterval(this.heartbeatInterval);
         }
 
-        // Set up more frequent heartbeats to maintain editor status
+        // Skip heartbeats while the tab is hidden — a backgrounded tab cannot
+        // be making edits, and idle hidden tabs across many users add up to
+        // unnecessary Redis writes on the server. The lock TTL (3 min) gives
+        // us a wide grace window before a hidden editor is considered gone.
         this.heartbeatInterval = setInterval(() => {
-            if (this.canEdit) {
+            if (this.canEdit && document.visibilityState === 'visible') {
                 console.log('Sending editor heartbeat');
                 this.wsManager.sendHeartbeat();
             }
-        }, 15000); // Send heartbeat every 15 seconds (reduced from 30s)
+        }, 15000);
     }
 
     /**

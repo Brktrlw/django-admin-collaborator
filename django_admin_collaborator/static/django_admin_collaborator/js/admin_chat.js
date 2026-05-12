@@ -250,9 +250,11 @@ class AdminChatManager {
             clearInterval(this.heartbeatInterval);
         }
 
-        // Send heartbeat every 30 seconds
+        // Skip heartbeats while the tab is hidden — a backgrounded tab has
+        // no UI to update from presence info, and idle hidden tabs across
+        // many users add up to unnecessary Redis writes on the server.
         this.heartbeatInterval = setInterval(() => {
-            if (this.isConnected) {
+            if (this.isConnected && document.visibilityState === 'visible') {
                 this.sendMessage({
                     type: 'heartbeat'
                 });

@@ -9,6 +9,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import connections
 from django.utils import timezone
 import logging
 
@@ -70,7 +71,133 @@ def redis_operation_with_retry(func):
     return wrapper
 
 
-class AdminCollaborationConsumer(AsyncWebsocketConsumer):
+def _close_thread_db_connections() -> None:
+    """
+    Force-close every DB connection bound to the current thread.
+
+    Channels' built-in ``close_old_connections()`` only closes connections older
+    than ``CONN_MAX_AGE``. In a long-running ASGI process the ``sync_to_async``
+    thread pool keeps threads (and their Django ``connections`` objects) alive
+    indefinitely, so with ``CONN_MAX_AGE > 0`` every concurrent websocket connect
+    can spawn a new thread that holds a Postgres connection until the next call
+    into that thread closes it. Under heavy refresh / many concurrent admin
+    users this exhausts Postgres ``max_connections``.
+
+    Calling ``conn.close()`` here closes the connection unconditionally so the
+    package is safe regardless of the host project's ``CONN_MAX_AGE`` setting.
+    Trade-off: each call pays a fresh-connection cost (~few ms), which is
+    acceptable for the once-per-websocket auth check we use it for.
+    """
+    for conn in connections.all():
+        try:
+            conn.close()
+        except Exception:
+            # Cleanup must never raise; the connection may already be broken.
+            pass
+
+
+def get_utc_timestamp() -> str:
+    """Return the current time as a UTC ISO-8601 string with timezone info."""
+    return timezone.now().astimezone(dt.timezone.utc).isoformat()
+
+
+@database_sync_to_async
+def _is_staff_user(scope) -> bool:
+    """
+    Authorize an ASGI scope's user as authenticated + staff.
+
+    Runs in the ``database_sync_to_async`` thread pool. See
+    ``_close_thread_db_connections`` for why we force-close the DB connection
+    in the finally block.
+    """
+    try:
+        user = cast(User, scope.get('user'))
+        if user is None:
+            return False
+        return bool(user.is_authenticated and getattr(user, 'is_staff', False))
+    finally:
+        _close_thread_db_connections()
+
+
+class RedisClientMixin:
+    """
+    Shared Redis client + pool + retry-wrapped helpers for the WebSocket consumers.
+
+    Both consumer classes used to duplicate this block verbatim. A single pool
+    on the mixin means both classes share Redis connections (lower client count
+    against managed Redis plans like Heroku Redis).
+    """
+
+    _redis_connection_pool = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._redis_client = None
+
+    @property
+    def redis_client(self):
+        if self._redis_client is None:
+            if RedisClientMixin._redis_connection_pool is None:
+                redis_url = getattr(
+                    settings, 'ADMIN_COLLABORATOR_REDIS_URL',
+                    getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0'),
+                )
+                RedisClientMixin._redis_connection_pool = redis.ConnectionPool.from_url(
+                    redis_url,
+                    max_connections=REDIS_MAX_CONNECTIONS,
+                    socket_timeout=REDIS_SOCKET_TIMEOUT,
+                    socket_keepalive=True,
+                    retry_on_timeout=True,
+                )
+            self._redis_client = redis.Redis(connection_pool=RedisClientMixin._redis_connection_pool)
+        return self._redis_client
+
+    @redis_operation_with_retry
+    def redis_exists(self, key):
+        return self.redis_client.exists(key)
+
+    @redis_operation_with_retry
+    def redis_get(self, key):
+        return self.redis_client.get(key)
+
+    @redis_operation_with_retry
+    def redis_set(self, key, value, ex=None):
+        return self.redis_client.set(key, value, ex=ex)
+
+    @redis_operation_with_retry
+    def redis_delete(self, key):
+        return self.redis_client.delete(key)
+
+    @redis_operation_with_retry
+    def redis_setex(self, key, time, value):
+        return self.redis_client.setex(key, time, value)
+
+    @redis_operation_with_retry
+    def redis_hset(self, name, key, value):
+        return self.redis_client.hset(name, key, value)
+
+    @redis_operation_with_retry
+    def redis_hdel(self, name, key):
+        return self.redis_client.hdel(name, key)
+
+    @redis_operation_with_retry
+    def redis_hgetall(self, name):
+        return self.redis_client.hgetall(name)
+
+    @redis_operation_with_retry
+    def redis_pipeline_execute(self, pipeline):
+        return pipeline.execute()
+
+    async def check_user_authorization(self) -> bool:
+        """Validate the connection's user is authenticated + has staff permissions."""
+        return await _is_staff_user(self.scope)
+
+    def get_timestamp(self) -> str:
+        """Compat shim — prefer the module-level ``get_utc_timestamp``."""
+        return get_utc_timestamp()
+
+
+class AdminCollaborationConsumer(RedisClientMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for real-time collaborative editing in Django admin.
 
@@ -79,73 +206,9 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
     and updates to all connected clients.
 
     Communication is coordinated through Redis for lock management and message distribution
-    via Django Channels layer for WebSocket messaging.
+    via Django Channels layer for WebSocket messaging. Redis client, connection pool,
+    auth check, and timestamp helpers live on ``RedisClientMixin``.
     """
-
-    # Class-level Redis connection pool
-    _redis_connection_pool = None
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Initialize Redis client lazily
-        self._redis_client = None
-
-    @property
-    def redis_client(self):
-        """
-        Lazily initialize the Redis client with connection pooling and retry logic.
-
-        Uses the REDIS_URL from settings, or a sensible default.
-        """
-        if not self._redis_client:
-            redis_url = getattr(settings, 'ADMIN_COLLABORATOR_REDIS_URL',
-                                getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0'))
-
-            # Initialize connection pool if not already created
-            if not AdminCollaborationConsumer._redis_connection_pool:
-                AdminCollaborationConsumer._redis_connection_pool = redis.ConnectionPool.from_url(
-                    redis_url,
-                    max_connections=REDIS_MAX_CONNECTIONS,
-                    socket_timeout=REDIS_SOCKET_TIMEOUT,
-                    socket_keepalive=True,
-                    retry_on_timeout=True
-                )
-
-            # Create Redis client using the connection pool
-            self._redis_client = redis.Redis(connection_pool=AdminCollaborationConsumer._redis_connection_pool)
-
-        return self._redis_client
-
-    # Add helper methods for Redis operations with retry logic
-    @redis_operation_with_retry
-    def redis_exists(self, key):
-        """Check if a key exists in Redis with retry logic."""
-        return self.redis_client.exists(key)
-
-    @redis_operation_with_retry
-    def redis_get(self, key):
-        """Get a value from Redis with retry logic."""
-        return self.redis_client.get(key)
-
-    @redis_operation_with_retry
-    def redis_set(self, key, value, ex=None):
-        """Set a value in Redis with retry logic."""
-        return self.redis_client.set(key, value, ex=ex)
-
-    @redis_operation_with_retry
-    def redis_delete(self, key):
-        """Delete a key from Redis with retry logic."""
-        return self.redis_client.delete(key)
-
-    @redis_operation_with_retry
-    def redis_setex(self, key, time, value):
-        """Set a value with expiration in Redis with retry logic."""
-        return self.redis_client.setex(key, time, value)
-
-    @redis_operation_with_retry
-    def redis_pipeline_execute(self, pipeline):
-        """Execute a Redis pipeline with retry logic."""
-        return pipeline.execute()
 
     async def connect(self) -> None:
         """
@@ -196,19 +259,20 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         # Accept the WebSocket connection
         await self.accept()
 
-        # Get and store the last modified timestamp if not already set
+        # Get-or-init the last_modified timestamp in a single round-trip.
+        # Previously this took 3 ops (exists + set + get); GET + conditional SET
+        # covers the same cases with at most 2 ops, and exactly 1 on the hot path
+        # (the key is set after the first connect to this object).
         try:
-            if not self.redis_exists(self.last_modified_key):
-                last_modified: str = self.get_timestamp()
-                self.redis_set(self.last_modified_key, last_modified)
-
-            # Get the current last_modified timestamp
             last_modified_bytes = self.redis_get(self.last_modified_key)
-            last_modified: str = last_modified_bytes.decode('utf-8') if last_modified_bytes else self.get_timestamp()
+            if last_modified_bytes:
+                last_modified: str = last_modified_bytes.decode('utf-8')
+            else:
+                last_modified = get_utc_timestamp()
+                self.redis_set(self.last_modified_key, last_modified)
         except Exception as e:
             logger.exception(f"Redis error during connect: {e}")
-            # Fallback to current timestamp if Redis operation fails
-            last_modified: str = self.get_timestamp()
+            last_modified = get_utc_timestamp()
 
         # Notify the group about this user's presence
         await self.channel_layer.group_send(
@@ -222,28 +286,6 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
                 'avatar_url': avatar_url
             }
         )
-
-    @database_sync_to_async
-    def check_user_authorization(self) -> bool:
-        """
-        Validate user is authenticated and has staff permissions.
-
-        This method runs in a thread pool to properly manage database connections.
-
-        Returns:
-            bool: True if user is authenticated and has staff permissions, False otherwise
-        """
-        user = cast(User, self.scope['user'])
-        return user.is_authenticated and user.is_staff
-
-    def get_timestamp(self) -> str:
-        """
-        Generate a UTC ISO format timestamp.
-
-        Returns:
-            str: Current UTC time in ISO format with timezone info
-        """
-        return timezone.now().astimezone(dt.timezone.utc).isoformat()
 
     @database_sync_to_async
     def get_last_modified(self) -> str:
@@ -526,27 +568,23 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         expiration time to handle temporary disconnections.
         """
         try:
-            # Update last heartbeat time for the current editor
             editor_data_bytes = self.redis_get(self.editor_key)
-            if editor_data_bytes:
-                editor_info: Dict[str, Any] = json.loads(editor_data_bytes)
-                if editor_info.get('editor_id') == self.user_id:
-                    editor_info['last_heartbeat'] = self.get_timestamp()
-                    # Reset the expiration time with increased duration (3 minutes instead of 2)
-                    self.redis_setex(
-                        self.editor_key,
-                        dt.timedelta(minutes=3),
-                        json.dumps(editor_info)
-                    )
+            if not editor_data_bytes:
+                return
+            editor_info: Dict[str, Any] = json.loads(editor_data_bytes)
+            if editor_info.get('editor_id') != self.user_id:
+                return
 
-                    # Store this editor ID as the previous editor with a longer grace period (10 minutes)
-                    # This helps with reconnection to reclaim editor status
-                    previous_editor_key = f"previous_editor:{self.room_group_name}"
-                    self.redis_setex(
-                        previous_editor_key,
-                        dt.timedelta(minutes=10),
-                        str(self.user_id)
-                    )
+            editor_info['last_heartbeat'] = get_utc_timestamp()
+            previous_editor_key = f"previous_editor:{self.room_group_name}"
+
+            # Pipeline the two writes — they are independent and the heartbeat
+            # fires every ~15s per active editor, so saving one Redis RTT here
+            # adds up under many concurrent editors.
+            pipeline = self.redis_client.pipeline()
+            pipeline.setex(self.editor_key, dt.timedelta(minutes=3), json.dumps(editor_info))
+            pipeline.setex(previous_editor_key, dt.timedelta(minutes=10), str(self.user_id))
+            self.redis_pipeline_execute(pipeline)
         except Exception as e:
             logger.exception(f"Redis error during heartbeat: {e}")
 
@@ -740,83 +778,14 @@ class AdminCollaborationConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps(event))
 
 
-class ChatConsumer(AsyncWebsocketConsumer):
+class ChatConsumer(RedisClientMixin, AsyncWebsocketConsumer):
     """
     WebSocket consumer for real-time chat between users on the same page.
 
-    This consumer manages presence tracking and message routing between users
-    viewing the same page in the Django admin interface.
+    Manages presence tracking and message routing between users viewing the
+    same page in the Django admin. Redis client, connection pool, auth check,
+    and timestamp helpers live on ``RedisClientMixin``.
     """
-
-    # Class-level Redis connection pool
-    _redis_connection_pool = None
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Initialize Redis client lazily
-        self._redis_client = None
-
-    @property
-    def redis_client(self):
-        """
-        Lazily initialize the Redis client with connection pooling and retry logic.
-
-        Uses the REDIS_URL from settings, or a sensible default.
-        """
-        if not self._redis_client:
-            redis_url = getattr(settings, 'ADMIN_COLLABORATOR_REDIS_URL',
-                              getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0'))
-
-            # Initialize connection pool if not already created
-            if not ChatConsumer._redis_connection_pool:
-                ChatConsumer._redis_connection_pool = redis.ConnectionPool.from_url(
-                    redis_url,
-                    max_connections=REDIS_MAX_CONNECTIONS,
-                    socket_timeout=REDIS_SOCKET_TIMEOUT,
-                    socket_keepalive=True,
-                    retry_on_timeout=True
-                )
-
-            # Create Redis client using the connection pool
-            self._redis_client = redis.Redis(connection_pool=ChatConsumer._redis_connection_pool)
-
-        return self._redis_client
-
-    # Add helper methods for Redis operations with retry logic
-    @redis_operation_with_retry
-    def redis_exists(self, key):
-        """Check if a key exists in Redis with retry logic."""
-        return self.redis_client.exists(key)
-
-    @redis_operation_with_retry
-    def redis_get(self, key):
-        """Get a value from Redis with retry logic."""
-        return self.redis_client.get(key)
-
-    @redis_operation_with_retry
-    def redis_set(self, key, value, ex=None):
-        """Set a value in Redis with retry logic."""
-        return self.redis_client.set(key, value, ex=ex)
-
-    @redis_operation_with_retry
-    def redis_hset(self, name, key, value):
-        """Set a hash field in Redis with retry logic."""
-        return self.redis_client.hset(name, key, value)
-
-    @redis_operation_with_retry
-    def redis_hdel(self, name, key):
-        """Delete a hash field in Redis with retry logic."""
-        return self.redis_client.hdel(name, key)
-
-    @redis_operation_with_retry
-    def redis_hgetall(self, name):
-        """Get all fields from a hash in Redis with retry logic."""
-        return self.redis_client.hgetall(name)
-
-    @redis_operation_with_retry
-    def redis_setex(self, key, time, value):
-        """Set a value with expiration in Redis with retry logic."""
-        return self.redis_client.setex(key, time, value)
 
     async def connect(self) -> None:
         """
@@ -900,26 +869,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'timestamp': self.get_timestamp()
             }
         )
-
-    @database_sync_to_async
-    def check_user_authorization(self) -> bool:
-        """
-        Validate user is authenticated and has staff permissions.
-
-        Returns:
-            bool: True if user is authenticated and has staff permissions, False otherwise
-        """
-        user = cast(User, self.scope['user'])
-        return user.is_authenticated and user.is_staff
-
-    def get_timestamp(self) -> str:
-        """
-        Generate a UTC ISO format timestamp.
-
-        Returns:
-            str: Current UTC time in ISO format with timezone info
-        """
-        return timezone.now().astimezone(dt.timezone.utc).isoformat()
 
     async def disconnect(self, close_code: int) -> None:
         """

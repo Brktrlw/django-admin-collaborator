@@ -157,19 +157,31 @@ class YourModelAdmin(CollaborativeAdminMixin, admin.ModelAdmin):
 
 ## Deployment
 
-### Heroku Deployment
+### Database connection handling
 
-If you're deploying this application on Heroku, ensure that you configure the database connection settings appropriately to optimize performance:
+As of **v0.4.5**, the package force-closes its DB connection after each
+WebSocket auth check, so it is safe to use with any `CONN_MAX_AGE` setting
+— including persistent connections (`CONN_MAX_AGE > 0`).
+
+**Earlier versions (≤ v0.4.4):** the WebSocket consumer relied on
+`channels.db.database_sync_to_async`'s default cleanup, which only closes
+connections older than `CONN_MAX_AGE`. Because the `sync_to_async` thread
+pool keeps worker threads alive indefinitely, every concurrent WebSocket
+connect could hold a Postgres connection until that thread was reused.
+Under heavy refresh / many concurrent admin users this exhausted
+`max_connections`. The historical workaround was to set
+`CONN_MAX_AGE = 0`:
 
 ```python
-# settings.py
+# settings.py — only required on django-admin-collaborator <= 0.4.4
 if not DEBUG:
     import django_heroku
     django_heroku.settings(locals())
     DATABASES['default']['CONN_MAX_AGE'] = 0
 ```
 
-These settings enable automatic retries with exponential backoff when Redis connection errors occur.
+Upgrade to **0.4.5+** to remove this constraint and enable persistent
+connections elsewhere in your project.
 
 ## Documentation
 

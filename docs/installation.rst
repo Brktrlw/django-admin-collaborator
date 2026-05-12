@@ -127,17 +127,33 @@ Start your project using an ASGI server:
 Deployment
 ---------
 
-Heroku Deployment
-^^^^^^^^^^^^^^^
+Database connection handling
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you're deploying this application on Heroku, ensure that you configure the database connection settings appropriately:
+As of **v0.4.5**, the WebSocket consumer force-closes its DB connection
+after each authorization check, so the package is safe to use with any
+``CONN_MAX_AGE`` setting — including persistent connections
+(``CONN_MAX_AGE > 0``). No special configuration is required.
+
+**Earlier versions (≤ v0.4.4):** the consumer relied on Channels'
+default ``close_old_connections()`` cleanup, which only closes
+connections older than ``CONN_MAX_AGE``. Because the ``sync_to_async``
+thread pool keeps worker threads alive indefinitely, every concurrent
+WebSocket connect could hold a Postgres connection until that thread
+was reused. Under heavy refresh / many concurrent admin users this
+exhausted ``max_connections``. The historical workaround was to disable
+persistent connections:
 
 .. code-block:: python
 
+    # settings.py — only required on django-admin-collaborator <= 0.4.4
     if not DEBUG:
         import django_heroku
         django_heroku.settings(locals())
         DATABASES['default']['CONN_MAX_AGE'] = 0
+
+Upgrade to **0.4.5+** to remove this constraint and enable persistent
+connections elsewhere in your project.
 
 Redis Connection Resilience
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
